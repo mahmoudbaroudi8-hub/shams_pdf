@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="skyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0284c7"/>
+      <stop offset="100%" stop-color="#0369a1"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000000" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+
+  <!-- Background rounded squircle -->
+  <rect width="512" height="512" rx="112" fill="url(#skyGrad)"/>
+
+  <!-- Catalog Card Sheet -->
+  <rect x="96" y="80" width="320" height="352" rx="28" fill="#ffffff" filter="url(#shadow)"/>
+
+  <!-- Header strip on card -->
+  <path d="M 96 108 C 96 92.5 108.5 80 124 80 L 388 80 C 403.5 80 416 92.5 416 108 L 416 144 L 96 144 Z" fill="#f0f9ff"/>
+
+  <!-- Phone / Catalog Brand Tag -->
+  <rect x="136" y="104" width="72" height="20" rx="6" fill="#0284c7"/>
+  <rect x="224" y="108" width="152" height="12" rx="4" fill="#cbd5e1"/>
+
+  <!-- Product Card 1: Phone Case / Headphone -->
+  <rect x="132" y="176" width="112" height="104" rx="16" fill="#f8fafc" stroke="#e2e8f0" stroke-width="4"/>
+  <circle cx="188" cy="220" r="28" fill="#e0f2fe"/>
+  <path d="M 176 220 A 12 12 0 0 1 200 220 L 200 230 A 4 4 0 0 1 196 234 L 180 234 A 4 4 0 0 1 176 230 Z" fill="#0284c7"/>
+  <rect x="148" y="256" width="80" height="10" rx="4" fill="#059669"/>
+
+  <!-- Product Card 2: Fast Charger / Cable -->
+  <rect x="268" y="176" width="112" height="104" rx="16" fill="#f8fafc" stroke="#e2e8f0" stroke-width="4"/>
+  <circle cx="324" cy="220" r="28" fill="#fef3c7"/>
+  <!-- Lightning bolt -->
+  <path d="M 324 204 L 312 222 L 322 222 L 316 238 L 336 218 L 326 218 Z" fill="#d97706"/>
+  <rect x="284" y="256" width="80" height="10" rx="4" fill="#059669"/>
+
+  <!-- Bottom Price Badge -->
+  <rect x="132" y="316" width="248" height="76" rx="18" fill="#f0fdf4" stroke="#86efac" stroke-width="3"/>
+  <circle cx="172" cy="354" r="18" fill="#22c55e"/>
+  <path d="M 166 354 L 170 358 L 178 350" fill="none" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="204" y="340" width="144" height="14" rx="4" fill="#15803d"/>
+  <rect x="204" y="362" width="96" height="10" rx="3" fill="#86efac"/>
+</svg>

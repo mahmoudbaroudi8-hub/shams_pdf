@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#ea580c" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="مولد الكتالوج" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/pwa-192x192.png" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <title>مولّد كتالوج أسعار البيع</title>
+    <meta name="description" content="تطبيق متكامل لتجار إكسسوارات الموبايل لقراءة قوائم أسعار الموردين بـ Gemini Flash، تسعير المنتجات، وتوليد كتالوجات PDF احترافية ومشاركتها عبر واتساب." />
+    <meta property="og:title" content="مولّد كتالوج أسعار البيع" />
+    <meta property="og:description" content="تطبيق متكامل لتجار إكسسوارات الموبايل لقراءة قوائم أسعار الموردين بـ Gemini Flash، تسعير المنتجات، وتوليد كتالوجات PDF احترافية ومشاركتها عبر واتساب." />
+    <meta property="og:image" content="/app-logo.png" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      try {
+        if (localStorage.getItem('catalog_theme') === 'dark') {
+          document.documentElement.classList.add('dark');
+        }
+        var accent = localStorage.getItem('catalog_accent_theme') || 'orange';
+        if (accent === 'orange') {
+          document.documentElement.classList.add('theme-orange');
+        }
+      } catch (e) {}
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet" />
+  </head>
+  <body class="bg-slate-50 text-slate-800 antialiased font-['Cairo',sans-serif] min-h-screen">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

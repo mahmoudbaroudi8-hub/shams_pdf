@@ -1,0 +1,8 @@
+{
+  "name": "Remix مولّد كتالوج أسعار البيع",
+  "description": "تطبيق متكامل لتجار إكسسوارات الموبايل لقراءة قوائم أسعار الموردين بـ Gemini Flash، تسعير المنتجات، وتوليد كتالوجات PDF احترافية ومشاركتها عبر واتساب.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
