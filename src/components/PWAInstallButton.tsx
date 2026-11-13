@@ -4,7 +4,11 @@ import { Download, Smartphone, Laptop, X, Share, MoreVertical, PlusSquare } from
 
 type DevicePlatform = 'ios' | 'android' | 'desktop';
 
-export const PWAInstallButton: React.FC = () => {
+interface PWAInstallButtonProps {
+  compactMobile?: boolean;
+}
+
+export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ compactMobile = false }) => {
   const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
   const [showInstallModal, setShowInstallModal] = useState(false);
 
@@ -29,11 +33,14 @@ export const PWAInstallButton: React.FC = () => {
       <button
         type="button"
         onClick={install}
-        className="flex items-center gap-1.5 px-3 py-1.5 min-h-[38px] rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold shadow-sm transition-all cursor-pointer animate-in fade-in"
+        className={`flex items-center justify-center gap-1.5 min-h-[40px] sm:min-h-[38px] rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold shadow-sm transition-all cursor-pointer animate-in fade-in shrink-0 ${
+          compactMobile ? 'px-2.5 sm:px-3 py-1.5' : 'px-3 py-1.5'
+        }`}
         title="تثبيت التطبيق على جهازك للعمل كتطبيق مستقل"
+        aria-label="تثبيت التطبيق"
       >
-        <Download size={14} />
-        <span>تثبيت التطبيق</span>
+        <Download size={15} />
+        <span className={compactMobile ? 'hidden sm:inline' : ''}>تثبيت التطبيق</span>
       </button>
     );
   }
@@ -47,11 +54,14 @@ export const PWAInstallButton: React.FC = () => {
           setSelectedGuideTab(detectedPlatform);
           setShowInstallModal(true);
         }}
-        className="flex items-center gap-1.5 px-3 py-1.5 min-h-[38px] rounded-xl bg-sky-50 hover:bg-sky-100 text-sky-700 text-xs font-bold border border-sky-200 transition-all cursor-pointer"
+        className={`flex items-center justify-center gap-1.5 min-h-[40px] sm:min-h-[38px] rounded-xl bg-sky-50 hover:bg-sky-100 text-sky-700 text-xs font-bold border border-sky-200 transition-all cursor-pointer shrink-0 ${
+          compactMobile ? 'px-2.5 sm:px-3 py-1.5' : 'px-3 py-1.5'
+        }`}
         title="تثبيت البرنامج كتطبيق على الكمبيوتر والموبايل"
+        aria-label="تثبيت التطبيق"
       >
-        <Download size={14} className="text-sky-600" />
-        <span>تثبيت التطبيق</span>
+        <Download size={15} className="text-sky-600" />
+        <span className={compactMobile ? 'hidden sm:inline' : ''}>تثبيت التطبيق</span>
       </button>
 
       {showInstallModal && (

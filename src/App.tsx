@@ -235,44 +235,33 @@ export default function App() {
     }
   });
 
-  const [accentTheme, setAccentTheme] = useState<'orange' | 'blue'>(() => {
-    try {
-      const saved = localStorage.getItem('catalog_accent_theme');
-      return saved === 'blue' ? 'blue' : 'orange';
-    } catch {
-      return 'orange';
-    }
-  });
-
   useEffect(() => {
     const root = document.documentElement;
+    root.classList.remove('theme-orange');
     if (isDarkMode) {
       root.classList.add('dark');
+      root.style.colorScheme = 'dark';
     } else {
       root.classList.remove('dark');
-    }
-    if (accentTheme === 'orange') {
-      root.classList.add('theme-orange');
-    } else {
-      root.classList.remove('theme-orange');
+      root.style.colorScheme = 'light only';
     }
     try {
       localStorage.setItem('catalog_theme', isDarkMode ? 'dark' : 'light');
-      localStorage.setItem('catalog_accent_theme', accentTheme);
+      localStorage.removeItem('catalog_accent_theme');
     } catch {
       // ignore storage quota errors
     }
+    const colorSchemeMeta = document.querySelector('meta[name="color-scheme"]');
+    if (colorSchemeMeta) {
+      colorSchemeMeta.setAttribute('content', isDarkMode ? 'dark' : 'light only');
+    }
     const themeMeta = document.querySelector('meta[name="theme-color"]');
     if (themeMeta) {
-      themeMeta.setAttribute(
-        'content',
-        isDarkMode ? '#0b1220' : accentTheme === 'orange' ? '#ea580c' : '#0284c7'
-      );
+      themeMeta.setAttribute('content', isDarkMode ? '#0b1220' : '#ea580c');
     }
-  }, [isDarkMode, accentTheme]);
+  }, [isDarkMode]);
 
   const toggleDarkMode = () => setIsDarkMode((prev) => !prev);
-  const toggleAccentTheme = () => setAccentTheme((prev) => (prev === 'orange' ? 'blue' : 'orange'));
 
   const pricedProductsCount = products.filter((p) => (p.selling_price || 0) > 0).length;
 
@@ -290,8 +279,6 @@ export default function App() {
         onToggleDesktopCollapse={() => setIsDesktopCollapsed((prev) => !prev)}
         isDarkMode={isDarkMode}
         onToggleDarkMode={toggleDarkMode}
-        accentTheme={accentTheme}
-        onToggleAccentTheme={toggleAccentTheme}
       />
 
       {/* Main Container with Desktop Sidebar */}
@@ -307,8 +294,6 @@ export default function App() {
           onToggleCollapse={() => setIsDesktopCollapsed((prev) => !prev)}
           isDarkMode={isDarkMode}
           onToggleDarkMode={toggleDarkMode}
-          accentTheme={accentTheme}
-          onToggleAccentTheme={toggleAccentTheme}
         />
 
         {/* Main Content Area with pb-28 on mobile (< 640px) so bottom bar doesn't overlay */}

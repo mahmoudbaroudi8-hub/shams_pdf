@@ -2,13 +2,26 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @layer base {
+  html:not(.dark) {
+    color-scheme: light only;
+    background-color: #f8fafc;
+    color: #1e293b;
+  }
+
   body {
     font-family: 'Cairo', system-ui, -apple-system, sans-serif;
     transition: background-color 0.2s ease, color 0.2s ease;
   }
 
+  html:not(.dark) body {
+    background-color: #f8fafc;
+    color: #1e293b;
+  }
+
   html.dark {
     color-scheme: dark;
+    background-color: #0b1220;
+    color: #e2e8f0;
   }
 
   html.dark body {
@@ -18,9 +31,9 @@
 }
 
 /* ==========================================================================
-   Orange Accent Theme (Default "البرتقالي" matching Shams PDF branding)
+   Single Orange App Theme ("البرتقالي" matching Shams PDF branding)
    ========================================================================== */
-html.theme-orange {
+:root {
   --color-sky-50: #fff7ed;
   --color-sky-100: #ffedd5;
   --color-sky-200: #fed7aa;
@@ -32,28 +45,6 @@ html.theme-orange {
   --color-sky-800: #9a3412;
   --color-sky-900: #7c2d12;
   --color-sky-950: #431407;
-}
-
-html.dark.theme-orange .bg-sky-50,
-html.dark.theme-orange .bg-sky-50\/50,
-html.dark.theme-orange .bg-sky-50\/70 {
-  background-color: rgba(234, 88, 12, 0.16) !important;
-}
-html.dark.theme-orange .bg-sky-100 {
-  background-color: rgba(234, 88, 12, 0.26) !important;
-}
-html.dark.theme-orange .from-sky-50 {
-  --tw-gradient-from: rgba(234, 88, 12, 0.2) !important;
-}
-html.dark.theme-orange .text-sky-900:not(.a4-preview-page *),
-html.dark.theme-orange .text-sky-800:not(.a4-preview-page *),
-html.dark.theme-orange .text-sky-700:not(.a4-preview-page *) {
-  color: #fdba74 !important;
-}
-html.dark.theme-orange .border-sky-100,
-html.dark.theme-orange .border-sky-200,
-html.dark.theme-orange .border-sky-300 {
-  border-color: rgba(251, 146, 60, 0.35) !important;
 }
 
 /* ==========================================================================
@@ -107,10 +98,10 @@ html.dark .bg-\[\#e8eeea\] {
 html.dark .bg-sky-50,
 html.dark .bg-sky-50\/50,
 html.dark .bg-sky-50\/70 {
-  background-color: rgba(14, 116, 144, 0.16) !important;
+  background-color: rgba(234, 88, 12, 0.16) !important;
 }
 html.dark .bg-sky-100 {
-  background-color: rgba(2, 132, 199, 0.24) !important;
+  background-color: rgba(234, 88, 12, 0.26) !important;
 }
 html.dark .bg-emerald-50,
 html.dark .bg-emerald-50\/60,
@@ -148,7 +139,7 @@ html.dark .bg-red-100 {
 
 /* Soft gradient banners */
 html.dark .from-sky-50 {
-  --tw-gradient-from: rgba(14, 116, 144, 0.2) !important;
+  --tw-gradient-from: rgba(234, 88, 12, 0.2) !important;
 }
 html.dark .to-white {
   --tw-gradient-to: #111827 !important;
@@ -184,7 +175,7 @@ html.dark .text-slate-400:not(.a4-preview-page *):not(.print-page *) {
 html.dark .text-sky-900:not(.a4-preview-page *),
 html.dark .text-sky-800:not(.a4-preview-page *),
 html.dark .text-sky-700:not(.a4-preview-page *) {
-  color: #7dd3fc !important;
+  color: #fdba74 !important;
 }
 html.dark .text-emerald-950:not(.a4-preview-page *),
 html.dark .text-emerald-900:not(.a4-preview-page *),
@@ -220,7 +211,7 @@ html.dark .border-slate-300:not(.a4-preview-page *) {
 html.dark .border-sky-100,
 html.dark .border-sky-200,
 html.dark .border-sky-300 {
-  border-color: rgba(56, 189, 248, 0.32) !important;
+  border-color: rgba(251, 146, 60, 0.35) !important;
 }
 html.dark .border-emerald-200,
 html.dark .border-emerald-200\/80,

@@ -18,7 +18,6 @@ import {
   BookOpen,
   Sun,
   Moon,
-  Palette,
 } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 
@@ -42,8 +41,6 @@ interface NavbarProps {
   onToggleDesktopCollapse?: () => void;
   isDarkMode?: boolean;
   onToggleDarkMode?: () => void;
-  accentTheme?: 'orange' | 'blue';
-  onToggleAccentTheme?: () => void;
   isDrawerOpen?: boolean;
   onOpenDrawer?: () => void;
   onCloseDrawer?: () => void;
@@ -59,8 +56,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   onToggleDesktopCollapse,
   isDarkMode = false,
   onToggleDarkMode,
-  accentTheme = 'orange',
-  onToggleAccentTheme,
 }) => {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isLogoMenuOpen, setIsLogoMenuOpen] = useState(false);
@@ -144,12 +139,12 @@ export const Navbar: React.FC<NavbarProps> = ({
         <div className="w-full px-4 sm:px-6">
           <div className="flex items-center justify-between h-16 gap-3">
             {/* Right in RTL: Logo & Brand + Mobile Hamburger / Desktop Sidebar Toggle */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
               {/* Hamburger Button on Mobile (< 640px) - Touch target >= 44px */}
               <button
                 type="button"
                 onClick={() => setIsDrawerOpen(true)}
-                className="sm:hidden flex items-center justify-center min-h-[44px] min-w-[44px] rounded-xl text-slate-700 hover:text-sky-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                className="sm:hidden shrink-0 flex items-center justify-center min-h-[44px] min-w-[44px] rounded-xl text-slate-700 hover:text-sky-600 hover:bg-slate-100 transition-colors cursor-pointer"
                 aria-label="فتح القائمة الرئيسية"
                 title="القائمة"
               >
@@ -161,7 +156,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <button
                   type="button"
                   onClick={onToggleDesktopCollapse}
-                  className="hidden sm:flex items-center justify-center min-h-[40px] min-w-[40px] rounded-xl text-slate-600 hover:text-sky-600 hover:bg-slate-100 border border-slate-200/70 transition-colors cursor-pointer"
+                  className="hidden sm:flex shrink-0 items-center justify-center min-h-[40px] min-w-[40px] rounded-xl text-slate-600 hover:text-sky-600 hover:bg-slate-100 border border-slate-200/70 transition-colors cursor-pointer"
                   aria-label={isDesktopCollapsed ? 'توسيع القائمة الجانبية' : 'طي القائمة الجانبية'}
                   title={isDesktopCollapsed ? 'توسيع القائمة الجانبية' : 'طي القائمة الجانبية'}
                 >
@@ -170,7 +165,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
 
               {/* Logo & Brand (Clicking the icon opens quick navigation menu) */}
-              <div className="flex items-center gap-2.5 relative" ref={logoMenuRef}>
+              <div className="flex items-center gap-2 sm:gap-2.5 relative min-w-0" ref={logoMenuRef}>
                 <div
                   role="button"
                   tabIndex={0}
@@ -195,11 +190,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                     className="w-full h-full object-cover"
                   />
                 </div>
-                <div>
-                  <h1 className="font-extrabold text-slate-900 text-sm sm:text-base leading-tight">
+                <div className="min-w-0">
+                  <h1 className="font-extrabold text-slate-900 text-sm sm:text-base leading-tight truncate">
                     مولّد كتالوج أسعار البيع
                   </h1>
-                  <p className="text-[11px] text-slate-500 font-medium hidden sm:block">
+                  <p className="text-[11px] text-slate-500 font-medium hidden sm:block truncate">
                     لتجار وموزعي إكسسوارات الموبايل
                   </p>
                 </div>
@@ -291,28 +286,6 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                       {/* Side Menu Footer */}
                       <div className="p-3 border-t border-slate-100 bg-slate-50/60 space-y-1.5 shrink-0">
-                        {onToggleAccentTheme && (
-                          <button
-                            type="button"
-                            role="menuitem"
-                            onClick={onToggleAccentTheme}
-                            className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 transition-colors min-h-[42px] cursor-pointer"
-                          >
-                            <div className="flex items-center gap-3">
-                              <Palette
-                                size={18}
-                                className={accentTheme === 'orange' ? 'text-orange-500 shrink-0' : 'text-sky-600 shrink-0'}
-                              />
-                              <span>لون البرنامج: {accentTheme === 'orange' ? 'برتقالي' : 'أزرق'}</span>
-                            </div>
-                            <span
-                              className={`w-4 h-4 rounded-full border border-white shadow-xs ${
-                                accentTheme === 'orange' ? 'bg-orange-500' : 'bg-sky-600'
-                              }`}
-                            />
-                          </button>
-                        )}
-
                         {onToggleDarkMode && (
                           <button
                             type="button"
@@ -323,7 +296,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                             {isDarkMode ? (
                               <Sun size={18} className="text-amber-400 shrink-0" />
                             ) : (
-                              <Moon size={18} className="text-indigo-500 shrink-0" />
+                              <Moon size={18} className="text-orange-500 shrink-0" />
                             )}
                             <span>{isDarkMode ? 'الوضع النهاري (الفاتح)' : 'الوضع الداكن (Dark Mode)'}</span>
                           </button>
@@ -348,37 +321,18 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
             </div>
 
-            {/* Left in RTL: Desktop Actions, Accent Color, Dark Mode & Settings */}
-            <div className="flex items-center gap-1.5 sm:gap-2">
-              <PWAInstallButton />
-
-              {onToggleAccentTheme && (
-                <button
-                  type="button"
-                  onClick={onToggleAccentTheme}
-                  className="flex items-center gap-1.5 min-h-[44px] min-w-[44px] px-2.5 sm:px-3 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer border text-slate-700 hover:bg-slate-100 border-transparent hover:border-slate-200"
-                  title={accentTheme === 'orange' ? 'التبديل إلى اللون الأزرق' : 'التبديل إلى اللون البرتقالي'}
-                  aria-label="تبديل لون البرنامج"
-                >
-                  <span
-                    className={`w-4 h-4 rounded-full border border-white shadow-xs shrink-0 ${
-                      accentTheme === 'orange' ? 'bg-orange-500' : 'bg-sky-600'
-                    }`}
-                  />
-                  <span className="hidden lg:inline">
-                    {accentTheme === 'orange' ? 'برتقالي' : 'أزرق'}
-                  </span>
-                </button>
-              )}
+            {/* Left in RTL: Desktop Actions, Dark Mode & Settings */}
+            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+              <PWAInstallButton compactMobile />
 
               {onToggleDarkMode && (
                 <button
                   type="button"
                   onClick={onToggleDarkMode}
-                  className={`flex items-center gap-1.5 min-h-[44px] min-w-[44px] px-2.5 sm:px-3 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer border ${
+                  className={`shrink-0 flex items-center justify-center gap-1.5 min-h-[44px] min-w-[44px] px-2.5 sm:px-3 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer border ${
                     isDarkMode
                       ? 'bg-slate-800 text-amber-300 border-slate-700 hover:bg-slate-700'
-                      : 'text-slate-700 hover:text-indigo-700 hover:bg-slate-100 border-transparent hover:border-slate-200'
+                      : 'text-slate-700 hover:text-sky-600 hover:bg-slate-100 border-transparent hover:border-slate-200'
                   }`}
                   title={isDarkMode ? 'التبديل إلى الوضع النهاري' : 'التبديل إلى الوضع الداكن'}
                   aria-label={isDarkMode ? 'تفعيل الوضع النهاري' : 'تفعيل الوضع الداكن'}
@@ -393,8 +347,9 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 type="button"
                 onClick={onOpenSettings}
-                className="flex items-center gap-1.5 min-h-[44px] min-w-[44px] px-3 py-2 text-slate-700 hover:text-sky-600 hover:bg-slate-100 rounded-xl text-xs font-bold transition-colors cursor-pointer border border-transparent hover:border-slate-200"
+                className="shrink-0 flex items-center justify-center gap-1.5 min-h-[44px] min-w-[44px] px-2.5 sm:px-3 py-2 text-slate-700 hover:text-sky-600 hover:bg-slate-100 rounded-xl text-xs font-bold transition-colors cursor-pointer border border-transparent hover:border-slate-200"
                 title="الإعدادات والنسخ الاحتياطي"
+                aria-label="الإعدادات والنسخ الاحتياطي"
               >
                 <Settings size={18} />
                 <span className="hidden sm:inline">الإعدادات</span>
@@ -481,28 +436,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               <div className="pt-3 border-t border-slate-100 my-2">
                 <div className="text-[11px] font-bold text-slate-400 px-3 py-1">التخصيص والتثبيت</div>
 
-                {/* Accent Color Toggle in Mobile Drawer */}
-                {onToggleAccentTheme && (
-                  <button
-                    type="button"
-                    onClick={onToggleAccentTheme}
-                    className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors min-h-[44px] cursor-pointer"
-                  >
-                    <div className="flex items-center gap-3">
-                      <Palette
-                        size={18}
-                        className={accentTheme === 'orange' ? 'text-orange-500' : 'text-sky-600'}
-                      />
-                      <span>لون البرنامج: {accentTheme === 'orange' ? 'برتقالي' : 'أزرق'}</span>
-                    </div>
-                    <span
-                      className={`w-4 h-4 rounded-full border border-white shadow-xs ${
-                        accentTheme === 'orange' ? 'bg-orange-500' : 'bg-sky-600'
-                      }`}
-                    />
-                  </button>
-                )}
-
                 {/* Dark Mode Toggle in Mobile Drawer */}
                 {onToggleDarkMode && (
                   <button
@@ -514,7 +447,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       {isDarkMode ? (
                         <Sun size={18} className="text-amber-400" />
                       ) : (
-                        <Moon size={18} className="text-slate-400" />
+                        <Moon size={18} className="text-orange-500" />
                       )}
                       <span>{isDarkMode ? 'الوضع النهاري (الفاتح)' : 'الوضع الداكن (Dark Mode)'}</span>
                     </div>
@@ -603,8 +536,6 @@ interface DesktopSidebarProps {
   onToggleCollapse: () => void;
   isDarkMode?: boolean;
   onToggleDarkMode?: () => void;
-  accentTheme?: 'orange' | 'blue';
-  onToggleAccentTheme?: () => void;
 }
 
 export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
@@ -617,8 +548,6 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   onToggleCollapse,
   isDarkMode = false,
   onToggleDarkMode,
-  accentTheme = 'orange',
-  onToggleAccentTheme,
 }) => {
   // Primary workflow pages
   const primaryNavItems: NavItem[] = [
@@ -749,41 +678,11 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
 
       {/* Sidebar Footer: Theme Toggle, Settings & Backup */}
       <div className="p-2.5 border-t border-slate-100 bg-slate-50/50 space-y-1">
-        {onToggleAccentTheme && (
-          <button
-            type="button"
-            onClick={onToggleAccentTheme}
-            className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-xs font-extrabold text-slate-700 hover:bg-white hover:text-sky-700 hover:shadow-2xs rounded-xl transition-all min-h-[42px] cursor-pointer border border-transparent hover:border-slate-200 ${
-              isCollapsed ? 'justify-center px-0' : 'justify-between'
-            }`}
-            title={accentTheme === 'orange' ? 'التبديل إلى اللون الأزرق' : 'التبديل إلى اللون البرتقالي'}
-          >
-            <div className="flex items-center gap-2.5 min-w-0">
-              <Palette
-                size={18}
-                className={`shrink-0 ${accentTheme === 'orange' ? 'text-orange-500' : 'text-sky-600'}`}
-              />
-              {!isCollapsed && (
-                <span className="truncate">
-                  اللون: {accentTheme === 'orange' ? 'برتقالي' : 'أزرق'}
-                </span>
-              )}
-            </div>
-            {!isCollapsed && (
-              <span
-                className={`w-3.5 h-3.5 rounded-full border border-white shadow-xs shrink-0 ${
-                  accentTheme === 'orange' ? 'bg-orange-500' : 'bg-sky-600'
-                }`}
-              />
-            )}
-          </button>
-        )}
-
         {onToggleDarkMode && (
           <button
             type="button"
             onClick={onToggleDarkMode}
-            className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-xs font-extrabold text-slate-700 hover:bg-white hover:text-indigo-600 hover:shadow-2xs rounded-xl transition-all min-h-[42px] cursor-pointer border border-transparent hover:border-slate-200 ${
+            className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-xs font-extrabold text-slate-700 hover:bg-white hover:text-sky-600 hover:shadow-2xs rounded-xl transition-all min-h-[42px] cursor-pointer border border-transparent hover:border-slate-200 ${
               isCollapsed ? 'justify-center px-0' : ''
             }`}
             title={isDarkMode ? 'التبديل إلى الوضع النهاري' : 'التبديل إلى الوضع الداكن'}
@@ -791,7 +690,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
             {isDarkMode ? (
               <Sun size={18} className="text-amber-400 shrink-0" />
             ) : (
-              <Moon size={18} className="text-slate-500 shrink-0" />
+              <Moon size={18} className="text-orange-500 shrink-0" />
             )}
             {!isCollapsed && (
               <span className="truncate">{isDarkMode ? 'الوضع النهاري' : 'الوضع الداكن'}</span>

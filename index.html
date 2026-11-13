@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light only" />
     <meta name="theme-color" content="#ea580c" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -20,12 +21,20 @@
     <meta name="twitter:card" content="summary_large_image" />
     <script>
       try {
-        if (localStorage.getItem('catalog_theme') === 'dark') {
-          document.documentElement.classList.add('dark');
-        }
-        var accent = localStorage.getItem('catalog_accent_theme') || 'orange';
-        if (accent === 'orange') {
-          document.documentElement.classList.add('theme-orange');
+        localStorage.removeItem('catalog_accent_theme');
+        var isDark = localStorage.getItem('catalog_theme') === 'dark';
+        var root = document.documentElement;
+        root.classList.remove('theme-orange');
+        if (isDark) {
+          root.classList.add('dark');
+          root.style.colorScheme = 'dark';
+          var csMeta = document.querySelector('meta[name="color-scheme"]');
+          if (csMeta) csMeta.setAttribute('content', 'dark');
+          var tcMeta = document.querySelector('meta[name="theme-color"]');
+          if (tcMeta) tcMeta.setAttribute('content', '#0b1220');
+        } else {
+          root.classList.remove('dark');
+          root.style.colorScheme = 'light only';
         }
       } catch (e) {}
     </script>
