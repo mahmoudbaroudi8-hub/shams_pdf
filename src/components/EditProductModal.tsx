@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Product, ProductCategory, ALL_CATEGORIES } from '../types';
-import { X, Check, Edit2 } from 'lucide-react';
+import { readFileAsWorkingDataUrl, compressUploadedImage } from '../utils/imageCropper';
+import { CropAdjustModal } from './CropAdjustModal';
+import { X, Check, Edit2, Crop, Upload, Trash2, ImageIcon } from 'lucide-react';
 import { useUiFeedback } from './UiFeedbackProvider';
 
 interface EditProductModalProps {
@@ -23,11 +25,34 @@ export const EditProductModal: React.FC<EditProductModalProps> = ({
   const [model, setModel] = useState(product.model || '');
   const [specification, setSpecification] = useState(product.specification || '');
   const [supplier, setSupplier] = useState(product.supplier || '');
-  const [wholesalePrice, setWholesalePrice] = useState(product.wholesale_price);
-  const [sellingPrice, setSellingPrice] = useState(product.selling_price);
+  const [wholesalePrice, setWholesalePrice] = useState(Number(product.wholesale_price) || 0);
+  const [sellingPrice, setSellingPrice] = useState(Number(product.selling_price) || 0);
   const [availableModelsStr, setAvailableModelsStr] = useState(
     (product.available_models || []).join(' ، ')
   );
+  const [imageUrl, setImageUrl] = useState<string | undefined>(product.image_url);
+  const [originalImageUrl, setOriginalImageUrl] = useState<string | undefined>(
+    product.original_image_url || product.image_url
+  );
+  const [isImageStudioOpen, setIsImageStudioOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImagePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const [workingUrl, compressed] = await Promise.all([
+        readFileAsWorkingDataUrl(file, 1200),
+        compressUploadedImage(file, 520),
+      ]);
+      setOriginalImageUrl(workingUrl);
+      setImageUrl(compressed);
+      setIsImageStudioOpen(true);
+    } catch {
+      toast.error('تعذر قراءة الصورة.');
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,16 +67,17 @@ export const EditProductModal: React.FC<EditProductModalProps> = ({
       .filter(Boolean);
 
     const newWholesale = Number(wholesalePrice) || 0;
+    const newSelling = Number(sellingPrice) || 0;
     let updatedHistory = product.wholesale_price_history || [];
     let prevWholesale = product.previous_wholesale_price;
     let priceChanged = product.price_changed;
 
-    if (product.wholesale_price > 0 && newWholesale !== product.wholesale_price) {
-      prevWholesale = product.wholesale_price;
+    if ((Number(product.wholesale_price) || 0) > 0 && newWholesale !== (Number(product.wholesale_price) || 0)) {
+      prevWholesale = Number(product.wholesale_price) || 0;
       priceChanged = true;
       updatedHistory = [
         ...updatedHistory,
-        { price: product.wholesale_price, date: Date.now() },
+        { price: Number(product.wholesale_price) || 0, date: Date.now() },
       ].slice(-5);
     }
 
@@ -67,7 +93,12 @@ export const EditProductModal: React.FC<EditProductModalProps> = ({
       previous_wholesale_price: prevWholesale,
       wholesale_price_history: updatedHistory,
       price_changed: priceChanged,
-      selling_price: Number(sellingPrice) || 0,
+      selling_price: newSelling,
+      manual_price_set: newSelling > 0 ? true : false,
+      included_in_catalog: newSelling > 0 ? product.included_in_catalog || true : false,
+      image_url: imageUrl,
+      original_image_url: originalImageUrl,
+      needs_crop_adjustment: false,
       available_models,
       updated_at: Date.now(),
     });
@@ -97,6 +128,63 @@ export const EditProductModal: React.FC<EditProductModalProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="py-4 space-y-4 text-xs font-semibold">
+          {/* Product Image Controls */}
+          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex flex-wrap items-center gap-3">
+            <div
+              onClick={() => (imageUrl ? setIsImageStudioOpen(true) : fileInputRef.current?.click())}
+              className="w-16 h-16 rounded-xl bg-white border border-slate-200 flex items-center justify-center overflow-hidden shrink-0 cursor-pointer hover:border-sky-500"
+            >
+              {imageUrl ? (
+                <img src={imageUrl} alt={name} className="w-full h-full object-contain p-1" />
+              ) : (
+                <ImageIcon size={20} className="text-slate-300" />
+              )}
+            </div>
+            <div className="flex-1 min-w-[180px] space-y-2">
+              <span className="block text-xs font-bold text-slate-700">صورة المنتج:</span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept="image/*"
+                  onChange={handleImagePick}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg font-bold flex items-center gap-1 cursor-pointer"
+                >
+                  <Upload size={12} />
+                  {imageUrl ? 'تغيير الصورة' : 'رفع صورة'}
+                </button>
+                {imageUrl && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setIsImageStudioOpen(true)}
+                      className="px-2.5 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 rounded-lg font-bold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Crop size={12} />
+                      قص وتعديل وإزالة
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setImageUrl(undefined);
+                        setOriginalImageUrl(undefined);
+                      }}
+                      className="px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg font-bold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Trash2 size={12} />
+                      حذف
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
           {/* Name */}
           <div>
             <label className="block text-slate-700 mb-1 font-bold">اسم المنتج التجاري:</label>
@@ -176,10 +264,11 @@ export const EditProductModal: React.FC<EditProductModalProps> = ({
                 <input
                   type="number"
                   min="0"
-                  step="0.5"
+                  step="any"
                   value={wholesalePrice}
                   onChange={(e) => setWholesalePrice(Number(e.target.value))}
-                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 focus:outline-amber-500"
+                  className="w-full p-2.5 pl-10 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 focus:outline-amber-500"
+                  dir="ltr"
                 />
                 <span className="absolute left-2.5 top-2.5 text-slate-400 font-bold">ج.م</span>
               </div>
@@ -193,10 +282,11 @@ export const EditProductModal: React.FC<EditProductModalProps> = ({
                 <input
                   type="number"
                   min="0"
-                  step="1"
+                  step="any"
                   value={sellingPrice}
                   onChange={(e) => setSellingPrice(Number(e.target.value))}
-                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-emerald-700 focus:outline-emerald-500"
+                  className="w-full p-2.5 pl-10 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-emerald-700 focus:outline-emerald-500"
+                  dir="ltr"
                 />
                 <span className="absolute left-2.5 top-2.5 text-slate-400 font-bold">ج.م</span>
               </div>
@@ -265,6 +355,24 @@ export const EditProductModal: React.FC<EditProductModalProps> = ({
           </div>
         </form>
       </div>
+
+      {isImageStudioOpen && (
+        <CropAdjustModal
+          initialImageUrl={imageUrl}
+          initialRawUrl={originalImageUrl || imageUrl}
+          title="تعديل وقص صورة المنتج"
+          subtitle={name || product.code}
+          onClose={() => setIsImageStudioOpen(false)}
+          onSaveImageUrl={(editedUrl, rawUrl) => {
+            setImageUrl(editedUrl);
+            setOriginalImageUrl(rawUrl);
+          }}
+          onRemoveImage={() => {
+            setImageUrl(undefined);
+            setOriginalImageUrl(undefined);
+          }}
+        />
+      )}
     </div>
   );
 };

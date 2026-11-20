@@ -1,33 +1,38 @@
 import * as pdfjsLib from 'pdfjs-dist';
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { PageImageItem } from '../types';
 import { loadImage } from './imageCropper';
 
-// Configure PDF.js worker dynamically matching the exact installed pdfjs-dist version (4.10.38)
+// Configure PDF.js worker using local Vite-bundled module URL (works 100% offline & in PWAs/iframes)
 try {
-  const version = pdfjsLib.version || '4.10.38';
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${version}/build/pdf.worker.min.mjs`;
-  console.log(`[PDF.js] Library version: ${pdfjsLib.version}, Worker: ${pdfjsLib.GlobalWorkerOptions.workerSrc}`);
+  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 } catch (e) {
   console.warn('PDF.js worker initialization notice:', e);
 }
 
 /**
- * Loads a PDF document and returns the proxy instance
+ * Loads a PDF document safely (cloning binary buffer so pdf.js worker never detaches caller data)
  */
-export async function loadPdfDocument(fileOrData: File | Blob | ArrayBuffer | Uint8Array): Promise<any> {
-  let arrayBuffer: ArrayBuffer;
+export async function loadPdfDocument(
+  fileOrData: File | Blob | ArrayBuffer | Uint8Array
+): Promise<any> {
+  let bytesCopy: Uint8Array;
   if (fileOrData instanceof File || fileOrData instanceof Blob) {
-    arrayBuffer = await fileOrData.arrayBuffer();
+    const ab = await fileOrData.arrayBuffer();
+    bytesCopy = new Uint8Array(ab);
   } else if (fileOrData instanceof Uint8Array) {
-    arrayBuffer = fileOrData.buffer as ArrayBuffer;
+    bytesCopy = fileOrData.slice();
   } else {
-    arrayBuffer = fileOrData;
+    bytesCopy = new Uint8Array(fileOrData.slice(0));
   }
 
+  const version = pdfjsLib.version || '4.10.38';
   const loadingTask = pdfjsLib.getDocument({
-    data: new Uint8Array(arrayBuffer),
-    cMapUrl: `https://unpkg.com/pdfjs-dist@${pdfjsLib.version || '4.10.38'}/cmaps/`,
+    data: bytesCopy,
+    cMapUrl: `https://unpkg.com/pdfjs-dist@${version}/cmaps/`,
     cMapPacked: true,
+    useWorkerFetch: false,
+    isEvalSupported: false,
   });
 
   return await loadingTask.promise;
@@ -42,13 +47,15 @@ export async function renderPdfPageToImage(
   pageNum: number
 ): Promise<PageImageItem> {
   const page = await pdfDoc.getPage(pageNum);
-  // User instruction: scale 2 exactly
   const viewport = page.getViewport({ scale: 2.0 });
 
   const canvas = document.createElement('canvas');
-  canvas.width = Math.round(viewport.width);
-  canvas.height = Math.round(viewport.height);
-  const ctx = canvas.getContext('2d')!;
+  canvas.width = Math.max(1, Math.round(viewport.width));
+  canvas.height = Math.max(1, Math.round(viewport.height));
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    throw new Error('تعذر تهيئة لوحة الرسم لعرض صفحة الـ PDF.');
+  }
 
   // Crisp white background
   ctx.fillStyle = '#ffffff';
@@ -62,6 +69,11 @@ export async function renderPdfPageToImage(
 
   const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
   const base64Data = dataUrl.split(',')[1] || '';
+  const width = canvas.width;
+  const height = canvas.height;
+
+  canvas.width = 1;
+  canvas.height = 1;
 
   return {
     pageNumber: pageNum,
@@ -69,8 +81,8 @@ export async function renderPdfPageToImage(
     dataUrl,
     base64Data,
     mimeType: 'image/jpeg',
-    width: canvas.width,
-    height: canvas.height,
+    width,
+    height,
   };
 }
 

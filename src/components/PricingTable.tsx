@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   Product,
   ProductCategory,
@@ -62,6 +62,24 @@ export const PricingTable: React.FC<PricingTableProps> = ({
   onSettingsUpdated,
 }) => {
   const { toast, confirm } = useUiFeedback();
+
+  // Safe numeric coercion (handles numbers, numeric strings, and Arabic digits ٠-٩)
+  const toSafeNum = (val: any): number => {
+    if (typeof val === 'number') return Number.isFinite(val) ? Math.round(val * 100) / 100 : 0;
+    if (val === null || val === undefined || val === '') return 0;
+    const normalized = String(val)
+      .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+      .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
+      .replace(/٫/g, '.')
+      .replace(/[^0-9.-]/g, '');
+    const n = Number(normalized);
+    return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
+  };
+
+  // Live ref so rapid inline edits across rows never drop updates
+  const productsRef = useRef<Product[]>(products);
+  productsRef.current = products;
+
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('الكل');
@@ -84,8 +102,36 @@ export const PricingTable: React.FC<PricingTableProps> = ({
   const [markupPercent, setMarkupPercent] = useState<number>(25); // (أ)
   const [fixedAddAmount, setFixedAddAmount] = useState<number>(30); // (ب)
   const [profitMarginPercent, setProfitMarginPercent] = useState<number>(20); // (ج)
-  const [rounding, setRounding] = useState<1 | 5 | 10>(5);
+  const [allowFractions, setAllowFractions] = useState<boolean>(
+    settings?.allow_price_fractions ?? true
+  );
+  const [rounding, setRounding] = useState<0 | 1 | 5 | 10>(() => {
+    const saved = settings?.global_pricing_rule?.rounding;
+    if (saved === 0 || saved === 1 || saved === 5 || saved === 10) return saved;
+    return (settings?.allow_price_fractions ?? true) ? 0 : 5;
+  });
   const [overrideManualPrices, setOverrideManualPrices] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (settings?.allow_price_fractions !== undefined) {
+      setAllowFractions(settings.allow_price_fractions);
+    }
+    const savedRounding = settings?.global_pricing_rule?.rounding;
+    if (savedRounding === 0 || savedRounding === 1 || savedRounding === 5 || savedRounding === 10) {
+      setRounding(savedRounding);
+    }
+    if (settings?.current_standard_map && settings.current_standard_map.length > 0) {
+      setStandardMapTiers(settings.current_standard_map);
+    }
+    if (settings?.standard_map_fallback_percent !== undefined) {
+      setStandardFallbackPercent(settings.standard_map_fallback_percent);
+    }
+  }, [
+    settings?.allow_price_fractions,
+    settings?.global_pricing_rule?.rounding,
+    settings?.current_standard_map,
+    settings?.standard_map_fallback_percent,
+  ]);
 
   // Custom Tiers State (د)
   const [tiers, setTiers] = useState<PricingTier[]>([
@@ -131,11 +177,86 @@ export const PricingTable: React.FC<PricingTableProps> = ({
     return products.some((p) => p.previous_selling_price_snapshot !== undefined);
   }, [products]);
 
+  // Quick filter counts (using safe numeric coercion)
+  const quickFilterCounts = useMemo(() => {
+    let withoutPrice = 0;
+    let needsCrop = 0;
+    let duplicate = 0;
+    let priceChanged = 0;
+    for (const p of products) {
+      if (toSafeNum(p.selling_price) <= 0) withoutPrice++;
+      if (p.needs_crop_adjustment) needsCrop++;
+      if (p.is_potential_duplicate) duplicate++;
+      if (p.price_changed) priceChanged++;
+    }
+    return { withoutPrice, needsCrop, duplicate, priceChanged };
+  }, [products]);
+
+  // Dynamic category tabs: include configured categories + any unlisted categories present on products
+  const categoryTabs = useMemo(() => {
+    const knownNames = categories.map((c) => c.name);
+    const knownSet = new Set(knownNames.map((n) => n.trim()));
+    const extraNames: string[] = [];
+    let hasUncategorized = false;
+
+    for (const p of products) {
+      const catName = (p.category || '').trim();
+      if (!catName) {
+        hasUncategorized = true;
+      } else if (!knownSet.has(catName)) {
+        knownSet.add(catName);
+        extraNames.push(catName);
+      }
+    }
+
+    const tabs = ['الكل', ...knownNames, ...extraNames];
+    if (hasUncategorized && !knownSet.has('بدون قسم')) {
+      tabs.push('بدون قسم');
+    }
+    return tabs;
+  }, [categories, products]);
+
+  // Auto-clear empty/stale filters when products exist so Stage 2 table never gets stuck blank (0 / N)
+  useEffect(() => {
+    if (products.length === 0) return;
+    if (onlyWithoutPrice && quickFilterCounts.withoutPrice === 0) setOnlyWithoutPrice(false);
+    if (onlyNeedsCrop && quickFilterCounts.needsCrop === 0) setOnlyNeedsCrop(false);
+    if (onlyPotentialDuplicate && quickFilterCounts.duplicate === 0) setOnlyPotentialDuplicate(false);
+    if (onlyPriceChanged && quickFilterCounts.priceChanged === 0) setOnlyPriceChanged(false);
+    if (selectedCategory !== 'الكل') {
+      const target = selectedCategory.trim();
+      const catCount = products.filter((p) => {
+        const c = (p.category || '').trim();
+        return target === 'بدون قسم' ? !c : c === target;
+      }).length;
+      if (catCount === 0) {
+        setSelectedCategory('الكل');
+      }
+    }
+  }, [
+    products,
+    onlyWithoutPrice,
+    onlyNeedsCrop,
+    onlyPotentialDuplicate,
+    onlyPriceChanged,
+    selectedCategory,
+    quickFilterCounts,
+  ]);
+
   // Filtered Products
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
-      if (selectedCategory !== 'الكل' && p.category !== selectedCategory) return false;
-      if (onlyWithoutPrice && (p.selling_price || 0) > 0) return false;
+      const sellingNum = toSafeNum(p.selling_price);
+      if (selectedCategory !== 'الكل') {
+        const prodCat = (p.category || '').trim();
+        const targetCat = selectedCategory.trim();
+        if (targetCat === 'بدون قسم') {
+          if (prodCat) return false;
+        } else if (prodCat !== targetCat) {
+          return false;
+        }
+      }
+      if (onlyWithoutPrice && sellingNum > 0) return false;
       if (onlyPriceChanged && !p.price_changed) return false;
       if (onlyNeedsCrop && !p.needs_crop_adjustment) return false;
       if (onlyPotentialDuplicate && !p.is_potential_duplicate) return false;
@@ -150,6 +271,102 @@ export const PricingTable: React.FC<PricingTableProps> = ({
       return true;
     });
   }, [products, selectedCategory, onlyWithoutPrice, onlyPriceChanged, onlyNeedsCrop, onlyPotentialDuplicate, searchQuery]);
+
+  const hasAnyActiveFilter = Boolean(
+    selectedCategory !== 'الكل' ||
+      onlyWithoutPrice ||
+      onlyPriceChanged ||
+      onlyNeedsCrop ||
+      onlyPotentialDuplicate ||
+      searchQuery.trim()
+  );
+
+  const activeFilterChips = useMemo(() => {
+    const chips: { key: string; label: string; clear: () => void }[] = [];
+    if (selectedCategory !== 'الكل') {
+      chips.push({
+        key: 'cat',
+        label: `القسم: ${selectedCategory}`,
+        clear: () => setSelectedCategory('الكل'),
+      });
+    }
+    if (onlyWithoutPrice) {
+      chips.push({
+        key: 'noPrice',
+        label: 'بدون سعر بيع',
+        clear: () => setOnlyWithoutPrice(false),
+      });
+    }
+    if (onlyNeedsCrop) {
+      chips.push({
+        key: 'crop',
+        label: 'يحتاج ضبط القص',
+        clear: () => setOnlyNeedsCrop(false),
+      });
+    }
+    if (onlyPotentialDuplicate) {
+      chips.push({
+        key: 'dup',
+        label: 'مكرر محتمل',
+        clear: () => setOnlyPotentialDuplicate(false),
+      });
+    }
+    if (onlyPriceChanged) {
+      chips.push({
+        key: 'changed',
+        label: 'سعر الجملة تغير',
+        clear: () => setOnlyPriceChanged(false),
+      });
+    }
+    if (searchQuery.trim()) {
+      chips.push({
+        key: 'search',
+        label: `بحث: "${searchQuery.trim()}"`,
+        clear: () => setSearchQuery(''),
+      });
+    }
+    return chips;
+  }, [selectedCategory, onlyWithoutPrice, onlyNeedsCrop, onlyPotentialDuplicate, onlyPriceChanged, searchQuery]);
+
+  const resetAllFilters = () => {
+    setSelectedCategory('الكل');
+    setOnlyWithoutPrice(false);
+    setOnlyPriceChanged(false);
+    setOnlyNeedsCrop(false);
+    setOnlyPotentialDuplicate(false);
+    setSearchQuery('');
+  };
+
+  // Summary Pricing Stats for visible rows (plus overall total fallback check)
+  const pricingStats = useMemo(() => {
+    let withWholesale = 0;
+    let pricedCount = 0;
+    let totalWholesale = 0;
+    let totalSelling = 0;
+    let totalProfit = 0;
+    for (const p of filteredProducts) {
+      const w = toSafeNum(p.wholesale_price);
+      const s = toSafeNum(p.selling_price);
+      if (w > 0) {
+        withWholesale++;
+        totalWholesale += w;
+      }
+      if (s > 0) {
+        pricedCount++;
+        totalSelling += s;
+        totalProfit += s - w;
+      }
+    }
+    const avgMargin = totalSelling > 0 ? (totalProfit / totalSelling) * 100 : 0;
+    return {
+      withWholesale,
+      pricedCount,
+      totalWholesale: Math.round(totalWholesale),
+      totalSelling: Math.round(totalSelling),
+      totalProfit: Math.round(totalProfit),
+      avgMargin,
+    };
+  }, [filteredProducts]);
 
   // Bulk selection helpers
   const handleSelectAll = () => {
@@ -169,18 +386,66 @@ export const PricingTable: React.FC<PricingTableProps> = ({
     });
   };
 
-  // Inline update selling price (Marks as manually set)
+  // Inline update wholesale price
+  const handleWholesalePriceChange = async (product: Product, newPriceRaw: string) => {
+    const val = toSafeNum(newPriceRaw);
+    const updated: Product = {
+      ...product,
+      wholesale_price: val,
+      updated_at: Date.now(),
+    };
+    const nextList = productsRef.current.map((p) => (p.id === product.id ? updated : p));
+    productsRef.current = nextList;
+    onProductsUpdated(nextList);
+    await saveProduct(updated);
+  };
+
+  // Inline update selling price (Marks as manually set only when > 0)
   const handleSellingPriceChange = async (product: Product, newPriceRaw: string) => {
-    const val = Number(newPriceRaw.replace(/[^0-9.]/g, '')) || 0;
+    const parsed = toSafeNum(newPriceRaw);
+    const val = allowFractions ? parsed : Math.round(parsed);
     const updated: Product = {
       ...product,
       selling_price: val,
-      manual_price_set: true,
+      manual_price_set: val > 0,
       included_in_catalog: Boolean(product.name?.trim() && val > 0),
       updated_at: Date.now(),
     };
+    const nextList = productsRef.current.map((p) => (p.id === product.id ? updated : p));
+    productsRef.current = nextList;
+    onProductsUpdated(nextList);
     await saveProduct(updated);
-    onProductsUpdated(products.map((p) => (p.id === product.id ? updated : p)));
+  };
+
+  // Toggle selling price fractions acceptance (e.g., 7, 13, 7.5 vs rounded)
+  const handleTogglePriceFractions = async () => {
+    const nextAllow = !allowFractions;
+    const nextRounding: 0 | 1 | 5 | 10 = nextAllow ? 0 : rounding === 0 ? 5 : rounding;
+    setAllowFractions(nextAllow);
+    setRounding(nextRounding);
+
+    if (settings && onSettingsUpdated) {
+      const updatedSettings: CatalogSettings = {
+        ...settings,
+        allow_price_fractions: nextAllow,
+        global_pricing_rule: {
+          ...(settings.global_pricing_rule || {
+            method: pricingMethod,
+            value: markupPercent,
+            rounding: nextRounding,
+          }),
+          rounding: nextRounding,
+        },
+      };
+      await saveSettings(updatedSettings);
+      onSettingsUpdated(updatedSettings);
+    }
+
+    toast.success(
+      nextAllow
+        ? 'تم تفعيل قبول الكسور في أسعار البيع (يقبل أرقام مثل 7 و13 و7.5).'
+        : 'تم إغلاق الكسور في أسعار البيع وتفعيل التقريب.'
+    );
   };
 
   // Toggle included in catalog
@@ -190,8 +455,10 @@ export const PricingTable: React.FC<PricingTableProps> = ({
       included_in_catalog: !product.included_in_catalog,
       updated_at: Date.now(),
     };
+    const nextList = productsRef.current.map((p) => (p.id === product.id ? updated : p));
+    productsRef.current = nextList;
+    onProductsUpdated(nextList);
     await saveProduct(updated);
-    onProductsUpdated(products.map((p) => (p.id === product.id ? updated : p)));
   };
 
   // Delete product
@@ -204,7 +471,9 @@ export const PricingTable: React.FC<PricingTableProps> = ({
     });
     if (!ok) return;
     await deleteProduct(id);
-    onProductsUpdated(products.filter((p) => p.id !== id));
+    const nextList = productsRef.current.filter((p) => p.id !== id);
+    productsRef.current = nextList;
+    onProductsUpdated(nextList);
     setSelectedIds((prev) => {
       const next = new Set(prev);
       next.delete(id);
@@ -227,7 +496,9 @@ export const PricingTable: React.FC<PricingTableProps> = ({
     for (const id of selectedIds) {
       await deleteProduct(id);
     }
-    onProductsUpdated(products.filter((p) => !selectedIds.has(p.id)));
+    const nextList = productsRef.current.filter((p) => !selectedIds.has(p.id));
+    productsRef.current = nextList;
+    onProductsUpdated(nextList);
     setSelectedIds(new Set());
     toast.success('تم حذف الأصناف المحددة وحفظ نسخة احتياطية.');
   };
@@ -239,8 +510,10 @@ export const PricingTable: React.FC<PricingTableProps> = ({
       category: newCategory,
       updated_at: Date.now(),
     };
+    const nextList = productsRef.current.map((p) => (p.id === product.id ? updated : p));
+    productsRef.current = nextList;
+    onProductsUpdated(nextList);
     await saveProduct(updated);
-    onProductsUpdated(products.map((p) => (p.id === product.id ? updated : p)));
   };
 
   // Bulk move selected products to a category
@@ -306,11 +579,13 @@ export const PricingTable: React.FC<PricingTableProps> = ({
       }
     }
 
-    // Apply Rounding
-    if (rounding > 1) {
-      price = Math.round(price / rounding) * rounding;
-    } else {
+    // Apply Rounding (supports fractions / unrounded 0, 1, 5, 10)
+    if (rounding === 0) {
+      price = allowFractions ? Math.round(price * 100) / 100 : Math.round(price);
+    } else if (rounding === 1) {
       price = Math.round(price);
+    } else {
+      price = Math.round(price / rounding) * rounding;
     }
 
     return Math.max(wholesale, price);
@@ -351,18 +626,20 @@ export const PricingTable: React.FC<PricingTableProps> = ({
   // Preview samples (first 4 items)
   const previewSamples = useMemo(() => {
     return targetProducts.slice(0, 4).map((p) => {
-      const newPrice = calculatePrice(p.wholesale_price);
+      const wholesale = toSafeNum(p.wholesale_price);
+      const currentSelling = toSafeNum(p.selling_price);
+      const newPrice = wholesale > 0 ? calculatePrice(wholesale) : currentSelling;
       return {
         id: p.id,
         name: p.name,
-        wholesale: p.wholesale_price,
-        currentSelling: p.selling_price || 0,
+        wholesale,
+        currentSelling,
         newSelling: newPrice,
-        profit: newPrice - p.wholesale_price,
-        margin: newPrice > 0 ? (((newPrice - p.wholesale_price) / newPrice) * 100).toFixed(1) : '0',
+        profit: newPrice - wholesale,
+        margin: newPrice > 0 ? (((newPrice - wholesale) / newPrice) * 100).toFixed(1) : '0',
       };
     });
-  }, [targetProducts, pricingMethod, markupPercent, fixedAddAmount, profitMarginPercent, tiers, standardMapTiers, standardFallbackPercent, rounding]);
+  }, [targetProducts, pricingMethod, markupPercent, fixedAddAmount, profitMarginPercent, tiers, standardMapTiers, standardFallbackPercent, rounding, allowFractions]);
 
   // Apply Bulk Pricing
   const handleApplyBulkPricing = async () => {
@@ -372,10 +649,12 @@ export const PricingTable: React.FC<PricingTableProps> = ({
     }
 
     const updatedList: Product[] = targetProducts.map((p) => {
-      const calculated = calculatePrice(p.wholesale_price);
+      const wholesale = toSafeNum(p.wholesale_price);
+      const existingSelling = toSafeNum(p.selling_price);
+      const calculated = wholesale > 0 ? calculatePrice(wholesale) : existingSelling;
       return {
         ...p,
-        previous_selling_price_snapshot: p.selling_price, // Save snapshot for undo
+        previous_selling_price_snapshot: existingSelling, // Save snapshot for undo
         selling_price: calculated,
         included_in_catalog: Boolean(p.name?.trim() && calculated > 0),
         updated_at: Date.now(),
@@ -384,10 +663,20 @@ export const PricingTable: React.FC<PricingTableProps> = ({
 
     await saveProductsBatch(updatedList);
 
-    // Save current standard map in settings if modified
+    // Save current standard map & fraction/rounding settings if modified
     if (settings && onSettingsUpdated) {
       const updatedSettings: CatalogSettings = {
         ...settings,
+        allow_price_fractions: allowFractions,
+        global_pricing_rule: {
+          ...(settings.global_pricing_rule || {
+            method: pricingMethod,
+            value: markupPercent,
+            rounding,
+          }),
+          method: pricingMethod,
+          rounding,
+        },
         current_standard_map: standardMapTiers,
         standard_map_fallback_percent: standardFallbackPercent,
       };
@@ -396,9 +685,11 @@ export const PricingTable: React.FC<PricingTableProps> = ({
     }
 
     const updateMap = new Map(updatedList.map((p) => [p.id, p]));
-    const allUpdated = products.map((p) => updateMap.get(p.id) || p);
+    const allUpdated = productsRef.current.map((p) => updateMap.get(p.id) || p);
+    productsRef.current = allUpdated;
     onProductsUpdated(allUpdated);
     setShowBulkModal(false);
+    toast.success(`تم تطبيق التسعير على ${updatedList.length} منتج بنجاح.`);
   };
 
   // Undo Last Bulk Pricing Action
@@ -562,7 +853,7 @@ export const PricingTable: React.FC<PricingTableProps> = ({
   return (
     <div className="space-y-6">
       {/* Top Header & Actions Bar */}
-      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col xl:flex-row xl:items-center justify-between gap-3.5">
         <div>
           <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
             <SlidersHorizontal className="text-sky-600" size={24} />
@@ -577,10 +868,32 @@ export const PricingTable: React.FC<PricingTableProps> = ({
           {/* Bulk Pricing Button */}
           <button
             onClick={() => setShowBulkModal(true)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold shadow-md shadow-sky-600/20 transition-all cursor-pointer"
+            className="flex items-center gap-2 px-4 py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold shadow-md shadow-sky-600/20 transition-all cursor-pointer whitespace-nowrap"
           >
             <Sparkles size={16} />
             تسعير جماعي (الخريطة المعيارية والخيارات)
+          </button>
+
+          {/* Selling Price Fractions Toggle Button */}
+          <button
+            type="button"
+            onClick={handleTogglePriceFractions}
+            className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold border transition-all cursor-pointer whitespace-nowrap ${
+              allowFractions
+                ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300 shadow-2xs'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+            }`}
+            title="التحكم في قبول الكسور في أسعار البيع (مثل 7 أو 13 أو 7.5 أو بدون كسور)"
+          >
+            <Percent size={15} className={allowFractions ? 'text-emerald-600' : 'text-slate-500'} />
+            <span>{allowFractions ? 'الكسور في البيع: مقبولة ✓' : 'الكسور في البيع: مقربة'}</span>
+            <span
+              className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
+                allowFractions ? 'bg-emerald-200/70 text-emerald-900' : 'bg-slate-200 text-slate-600'
+              }`}
+            >
+              {allowFractions ? '7 / 13 / 7.5' : 'أقرب 5/10'}
+            </span>
           </button>
 
           {/* Undo Last Action Button */}
@@ -649,53 +962,97 @@ export const PricingTable: React.FC<PricingTableProps> = ({
 
           <div className="flex flex-wrap items-center gap-2">
             <button
-              onClick={() => setOnlyWithoutPrice((prev) => !prev)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+              type="button"
+              onClick={() => {
+                if (!onlyWithoutPrice && quickFilterCounts.withoutPrice === 0) {
+                  toast.info('كل المنتجات الحالية مسعرة بالفعل.');
+                  return;
+                }
+                setOnlyWithoutPrice((prev) => !prev);
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center gap-1.5 ${
                 onlyWithoutPrice
                   ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
+                  : quickFilterCounts.withoutPrice === 0
+                  ? 'bg-slate-50 text-slate-400 border-slate-200 opacity-65'
                   : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
               }`}
+              title={onlyWithoutPrice ? 'فلتر نشط — اضغط للإلغاء' : 'عرض المنتجات التي لم يتم تحديد سعر بيع لها'}
             >
-              بدون سعر بيع ({products.filter((p) => !p.selling_price || p.selling_price <= 0).length})
+              {onlyWithoutPrice && <Check size={13} />}
+              <span>بدون سعر بيع ({quickFilterCounts.withoutPrice})</span>
             </button>
 
             <button
-              onClick={() => setOnlyNeedsCrop((prev) => !prev)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+              type="button"
+              onClick={() => {
+                if (!onlyNeedsCrop && quickFilterCounts.needsCrop === 0) {
+                  toast.info('لا توجد منتجات تحتاج ضبط القص حالياً.');
+                  return;
+                }
+                setOnlyNeedsCrop((prev) => !prev);
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center gap-1.5 ${
                 onlyNeedsCrop
                   ? 'bg-amber-600 text-white border-amber-700 shadow-xs'
+                  : quickFilterCounts.needsCrop === 0
+                  ? 'bg-slate-50 text-slate-400 border-slate-200 opacity-65'
                   : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
               }`}
+              title={onlyNeedsCrop ? 'فلتر نشط — اضغط للإلغاء' : 'عرض المنتجات التي تحتاج ضبط القص'}
             >
-              يحتاج ضبط القص ({products.filter((p) => p.needs_crop_adjustment).length})
+              {onlyNeedsCrop && <Check size={13} />}
+              <span>يحتاج ضبط القص ({quickFilterCounts.needsCrop})</span>
             </button>
 
             <button
-              onClick={() => setOnlyPotentialDuplicate((prev) => !prev)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+              type="button"
+              onClick={() => {
+                if (!onlyPotentialDuplicate && quickFilterCounts.duplicate === 0) {
+                  toast.info('لا توجد منتجات مكررة محتملة حالياً.');
+                  return;
+                }
+                setOnlyPotentialDuplicate((prev) => !prev);
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center gap-1.5 ${
                 onlyPotentialDuplicate
                   ? 'bg-purple-600 text-white border-purple-700 shadow-xs'
+                  : quickFilterCounts.duplicate === 0
+                  ? 'bg-slate-50 text-slate-400 border-slate-200 opacity-65'
                   : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
               }`}
+              title={onlyPotentialDuplicate ? 'فلتر نشط — اضغط للإلغاء' : 'عرض المنتجات المكررة المحتملة'}
             >
-              مكرر محتمل ({products.filter((p) => p.is_potential_duplicate).length})
+              {onlyPotentialDuplicate && <Check size={13} />}
+              <span>مكرر محتمل ({quickFilterCounts.duplicate})</span>
             </button>
 
             <button
-              onClick={() => setOnlyPriceChanged((prev) => !prev)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+              type="button"
+              onClick={() => {
+                if (!onlyPriceChanged && quickFilterCounts.priceChanged === 0) {
+                  toast.info('لا توجد منتجات تغير سعر الجملة الخاص بها حالياً.');
+                  return;
+                }
+                setOnlyPriceChanged((prev) => !prev);
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center gap-1.5 ${
                 onlyPriceChanged
                   ? 'bg-indigo-600 text-white border-indigo-700 shadow-xs'
+                  : quickFilterCounts.priceChanged === 0
+                  ? 'bg-slate-50 text-slate-400 border-slate-200 opacity-65'
                   : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
               }`}
+              title={onlyPriceChanged ? 'فلتر نشط — اضغط للإلغاء' : 'عرض المنتجات التي تغير سعر جملتها'}
             >
-              سعر الجملة تغير ({products.filter((p) => p.price_changed).length})
+              {onlyPriceChanged && <Check size={13} />}
+              <span>سعر الجملة تغير ({quickFilterCounts.priceChanged})</span>
             </button>
           </div>
         </div>
 
         {/* Categories Bar */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 border-t border-slate-100 pt-3">
+        <div className="flex flex-wrap items-center gap-1.5 pb-1 border-t border-slate-100 pt-3">
           <button
             onClick={() => setIsCategoryManagerOpen(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-300 rounded-lg text-xs font-bold transition-all shadow-2xs shrink-0 cursor-pointer ml-1"
@@ -706,17 +1063,24 @@ export const PricingTable: React.FC<PricingTableProps> = ({
           </button>
 
           <span className="text-xs font-bold text-slate-400 shrink-0 ml-1">الأقسام:</span>
-          {['الكل', ...categories.map((c) => c.name)].map((cat) => {
-            const count = cat === 'الكل' ? products.length : products.filter((p) => p.category === cat).length;
+          {categoryTabs.map((cat) => {
+            const count =
+              cat === 'الكل'
+                ? products.length
+                : products.filter((p) => {
+                    const prodCat = (p.category || '').trim();
+                    return cat === 'بدون قسم' ? !prodCat : prodCat === cat.trim();
+                  }).length;
             const isSelected = selectedCategory === cat;
             return (
               <button
                 key={cat}
+                type="button"
                 onClick={() => setSelectedCategory(cat)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold shrink-0 transition-all cursor-pointer ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold shrink-0 transition-all cursor-pointer border ${
                   isSelected
-                    ? 'bg-slate-800 text-white'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
+                    : 'bg-slate-100 text-slate-600 border-transparent hover:bg-slate-200'
                 }`}
               >
                 {cat} ({count})
@@ -769,21 +1133,96 @@ export const PricingTable: React.FC<PricingTableProps> = ({
         </div>
       </div>
 
+      {/* Pricing & Profit Margins Live Summary Bar + Active Filter Reset */}
+      <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-3 text-xs">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          <div className="px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 font-bold text-slate-700">
+            المعروض: <span className="font-mono text-slate-900">{filteredProducts.length}</span> /{' '}
+            <span className="font-mono">{products.length}</span>
+          </div>
+          <div className="px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200 font-bold text-amber-900">
+            لها جملة: <span className="font-mono">{pricingStats.withWholesale}</span>
+            {pricingStats.totalWholesale > 0 && (
+              <span className="mr-1.5 font-mono text-[11px]">
+                ({pricingStats.totalWholesale.toLocaleString('en-US')} ج.م)
+              </span>
+            )}
+          </div>
+          <div className="px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 font-bold text-emerald-800">
+            مسعّرة للبيع: <span className="font-mono">{pricingStats.pricedCount}</span>
+            {pricingStats.totalSelling > 0 && (
+              <span className="mr-1.5 font-mono text-[11px]">
+                ({pricingStats.totalSelling.toLocaleString('en-US')} ج.م)
+              </span>
+            )}
+          </div>
+          <div className="px-3 py-1.5 rounded-xl bg-sky-50 border border-sky-200 font-bold text-sky-800">
+            صافي الربح: <span className="font-mono">{pricingStats.totalProfit.toLocaleString('en-US')} ج.م</span>{' '}
+            <span className="text-[11px] opacity-80">({pricingStats.avgMargin.toFixed(1)}%)</span>
+          </div>
+        </div>
+
+        {hasAnyActiveFilter && (
+          <button
+            type="button"
+            onClick={resetAllFilters}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 rounded-xl text-xs font-bold cursor-pointer transition-colors"
+          >
+            <X size={14} />
+            إلغاء كل الفلاتر وعرض الكل ({products.length})
+          </button>
+        )}
+      </div>
+
       {/* Products Table */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
         {filteredProducts.length === 0 ? (
-          <div className="p-12 text-center text-slate-400">
-            <p className="text-base font-semibold">لا توجد منتجات تطابق الفلاتر الحالية.</p>
-            <p className="text-xs mt-1">يمكنك رفع ملفات من مرحلة 1 أو إلغاء تفعيل الفلاتر.</p>
+          <div className="p-10 text-center text-slate-400 space-y-3">
+            <p className="text-base font-semibold text-slate-700">
+              {products.length > 0
+                ? `توجد (${products.length}) منتجات ولكنها مخفية بسبب الفلاتر النشطة حالياً.`
+                : 'لا توجد منتجات مضافة حتى الآن.'}
+            </p>
+            {activeFilterChips.length > 0 && (
+              <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                {activeFilterChips.map((chip) => (
+                  <button
+                    key={chip.key}
+                    type="button"
+                    onClick={chip.clear}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-50 text-amber-900 border border-amber-300 text-xs font-bold hover:bg-amber-100 cursor-pointer"
+                    title="اضغط لإلغاء هذا الفلتر"
+                  >
+                    <span>{chip.label}</span>
+                    <X size={13} />
+                  </button>
+                ))}
+              </div>
+            )}
+            <p className="text-xs">
+              {products.length > 0
+                ? 'اضغط على الزر أدناه لإلغاء الفلاتر وإظهار جميع الأصناف وأسعارها.'
+                : 'يمكنك رفع ملفات أو إضافة منتجات من المرحلة 1.'}
+            </p>
+            {hasAnyActiveFilter && products.length > 0 && (
+              <button
+                type="button"
+                onClick={resetAllFilters}
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-xl text-xs cursor-pointer shadow-xs"
+              >
+                <RotateCcw size={14} />
+                عرض كل المنتجات ({products.length})
+              </button>
+            )}
           </div>
         ) : (
           <>
-            {/* Mobile / Tablet Cards View (< 1024px) */}
-            <div className="block lg:hidden divide-y divide-slate-100">
+            {/* Mobile / Tablet Cards View (< 1280px so sidebar screens never clip price columns) */}
+            <div className="block xl:hidden divide-y divide-slate-100">
               {filteredProducts.map((product) => {
                 const isSelected = selectedIds.has(product.id);
-                const wholesale = product.wholesale_price || 0;
-                const selling = product.selling_price || 0;
+                const wholesale = toSafeNum(product.wholesale_price);
+                const selling = toSafeNum(product.selling_price);
                 const profitAmount = selling - wholesale;
                 const profitMargin = selling > 0 ? (profitAmount / selling) * 100 : 0;
 
@@ -904,13 +1343,25 @@ export const PricingTable: React.FC<PricingTableProps> = ({
 
                     {/* Pricing Grid */}
                     <div className="grid grid-cols-2 gap-2 bg-slate-50/80 p-3 rounded-xl border border-slate-200/80">
-                      {/* Wholesale */}
+                      {/* Wholesale (Editable Inline!) */}
                       <div>
                         <span className="text-[11px] font-bold text-amber-800 block mb-1">
                           سعر الجملة (خاص):
                         </span>
-                        <div className="font-bold text-slate-800 text-base">
-                          {wholesale.toFixed(0)} <span className="text-xs font-normal">ج.م</span>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            dir="ltr"
+                            value={wholesale > 0 ? wholesale : ''}
+                            onChange={(e) => handleWholesalePriceChange(product, e.target.value)}
+                            placeholder="0"
+                            className="w-full min-h-[44px] py-2 pl-9 pr-2.5 text-center font-mono rounded-xl text-sm font-bold border border-amber-200 bg-white text-slate-800 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                          />
+                          <span className="absolute left-2.5 top-3 text-xs font-bold text-slate-400 pointer-events-none">
+                            ج.م
+                          </span>
                         </div>
                         {product.price_changed && (
                           <div className="inline-flex items-center gap-1 mt-1 text-[10px] bg-amber-100 text-amber-900 font-bold px-1.5 py-0.5 rounded">
@@ -934,11 +1385,12 @@ export const PricingTable: React.FC<PricingTableProps> = ({
                           <input
                             type="number"
                             min="0"
-                            step="1"
-                            value={selling || ''}
+                            step={allowFractions ? 'any' : '1'}
+                            dir="ltr"
+                            value={selling > 0 ? selling : ''}
                             onChange={(e) => handleSellingPriceChange(product, e.target.value)}
                             placeholder="حدد السعر"
-                            className={`w-full min-h-[44px] py-2 px-3 rounded-xl text-sm font-bold border transition-all ${
+                            className={`w-full min-h-[44px] py-2 pl-9 pr-2.5 text-center font-mono rounded-xl text-sm font-bold border transition-all ${
                               selling <= 0
                                 ? 'border-amber-300 bg-amber-50/50 text-amber-900'
                                 : isLoss
@@ -962,7 +1414,7 @@ export const PricingTable: React.FC<PricingTableProps> = ({
                                 isLoss ? 'text-red-600' : isLowProfit ? 'text-amber-600' : 'text-emerald-600'
                               }`}
                             >
-                              {profitAmount.toFixed(0)} ج.م {isLoss && '(خسارة)'}
+                              {Number(profitAmount.toFixed(2))} ج.م {isLoss && '(خسارة)'}
                             </span>
                             <span className="bg-white px-2 py-0.5 rounded border border-slate-200 font-bold text-slate-600 text-[11px]">
                               هامش: {profitMargin.toFixed(1)}%
@@ -1025,31 +1477,31 @@ export const PricingTable: React.FC<PricingTableProps> = ({
               })}
             </div>
 
-            {/* Desktop Table View (>= 1024px) */}
-            <div className="hidden lg:block overflow-x-auto">
+            {/* Desktop Table View (>= 1280px) */}
+            <div className="hidden xl:block overflow-x-auto">
               <table className="w-full text-right text-sm">
                 <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 text-xs">
                   <tr>
-                    <th className="py-3 px-4 w-10 text-center">#</th>
-                    <th className="py-3 px-3 w-16 text-center">الصورة</th>
-                    <th className="py-3 px-3">اسم المنتج والموديل</th>
-                    <th className="py-3 px-3">النوع</th>
-                    <th className="py-3 px-3">
+                    <th className="py-3 px-2.5 w-10 text-center">#</th>
+                    <th className="py-3 px-2 w-16 text-center">الصورة</th>
+                    <th className="py-3 px-2.5">اسم المنتج والموديل</th>
+                    <th className="py-3 px-2">النوع</th>
+                    <th className="py-3 px-2">
                       <span className="bg-amber-100 text-amber-900 px-2 py-0.5 rounded-md font-bold">
                         سعر الجملة (خاص)
                       </span>
                     </th>
-                    <th className="py-3 px-3">سعر البيع للجمهور</th>
-                    <th className="py-3 px-3">الربح المتوقع</th>
-                    <th className="py-3 px-3 text-center">بالكتالوج</th>
-                    <th className="py-3 px-4 text-center">إجراءات</th>
+                    <th className="py-3 px-2">سعر البيع للجمهور</th>
+                    <th className="py-3 px-2">الربح المتوقع</th>
+                    <th className="py-3 px-2 text-center">بالكتالوج</th>
+                    <th className="py-3 px-2.5 text-center">إجراءات</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {filteredProducts.map((product) => {
                     const isSelected = selectedIds.has(product.id);
-                    const wholesale = product.wholesale_price || 0;
-                    const selling = product.selling_price || 0;
+                    const wholesale = toSafeNum(product.wholesale_price);
+                    const selling = toSafeNum(product.selling_price);
                     const profitAmount = selling - wholesale;
                     const profitMargin = selling > 0 ? (profitAmount / selling) * 100 : 0;
 
@@ -1063,7 +1515,7 @@ export const PricingTable: React.FC<PricingTableProps> = ({
                           isSelected ? 'bg-sky-50/40' : ''
                         }`}
                       >
-                        <td className="py-3 px-4 text-center">
+                        <td className="py-2.5 px-2.5 text-center">
                           <input
                             type="checkbox"
                             checked={isSelected}
@@ -1072,10 +1524,10 @@ export const PricingTable: React.FC<PricingTableProps> = ({
                           />
                         </td>
 
-                        <td className="py-2 px-3 text-center">
+                        <td className="py-2 px-2 text-center">
                           <div
                             onClick={() => setCropModalProduct(product)}
-                            className="w-14 h-14 bg-white rounded-lg border border-slate-200 overflow-hidden flex items-center justify-center p-1 cursor-pointer hover:border-sky-500 transition-all group relative"
+                            className="w-12 h-12 xl:w-14 xl:h-14 mx-auto bg-white rounded-lg border border-slate-200 overflow-hidden flex items-center justify-center p-1 cursor-pointer hover:border-sky-500 transition-all group relative"
                             title="اضغط لتعديل أو ضبط الصورة"
                           >
                             {product.image_url ? (
@@ -1089,7 +1541,7 @@ export const PricingTable: React.FC<PricingTableProps> = ({
                           </div>
                         </td>
 
-                        <td className="py-3 px-3 max-w-xs">
+                        <td className="py-2.5 px-2.5 min-w-[180px] max-w-[280px]">
                           <div className="flex flex-wrap items-center gap-1.5 mb-1">
                             <span className="font-semibold text-slate-800 text-sm leading-snug">
                               {product.name}
@@ -1146,11 +1598,11 @@ export const PricingTable: React.FC<PricingTableProps> = ({
                           </div>
                         </td>
 
-                        <td className="py-3 px-3">
+                        <td className="py-2.5 px-2">
                           <select
                             value={product.category}
                             onChange={(e) => handleSingleProductCategoryChange(product, e.target.value)}
-                            className="bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-800 text-xs font-bold rounded-lg px-2 py-1.5 cursor-pointer focus:ring-2 focus:ring-sky-500 focus:outline-none transition-all max-w-[140px] truncate"
+                            className="bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-800 text-xs font-bold rounded-lg px-2 py-1.5 cursor-pointer focus:ring-2 focus:ring-sky-500 focus:outline-none transition-all max-w-[130px] truncate"
                             title="تغيير قسم المنتج"
                           >
                             {categories.map((c) => (
@@ -1164,9 +1616,21 @@ export const PricingTable: React.FC<PricingTableProps> = ({
                           </select>
                         </td>
 
-                        <td className="py-3 px-3">
-                          <div className="font-bold text-slate-700 text-sm">
-                            {wholesale.toFixed(0)} <span className="text-xs font-normal">ج.م</span>
+                        <td className="py-2.5 px-2">
+                          <div className="relative w-24 2xl:w-28">
+                            <input
+                              type="number"
+                              min="0"
+                              step="any"
+                              dir="ltr"
+                              value={wholesale > 0 ? wholesale : ''}
+                              onChange={(e) => handleWholesalePriceChange(product, e.target.value)}
+                              placeholder="0"
+                              className="w-full py-1.5 pl-8 pr-2 text-center font-mono rounded-lg text-sm font-bold border border-amber-200 bg-white text-slate-800 focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                            />
+                            <span className="absolute left-2 top-2 text-[11px] font-bold text-slate-400 pointer-events-none">
+                              ج.م
+                            </span>
                           </div>
                           {product.price_changed && (
                             <div className="inline-flex items-center gap-1 mt-0.5 text-[10px] bg-amber-100 text-amber-900 font-bold px-1.5 py-0.5 rounded">
@@ -1188,16 +1652,17 @@ export const PricingTable: React.FC<PricingTableProps> = ({
                           )}
                         </td>
 
-                        <td className="py-3 px-3">
-                          <div className="relative w-28">
+                        <td className="py-2.5 px-2">
+                          <div className="relative w-24 2xl:w-28">
                             <input
                               type="number"
                               min="0"
-                              step="1"
-                              value={selling || ''}
+                              step={allowFractions ? 'any' : '1'}
+                              dir="ltr"
+                              value={selling > 0 ? selling : ''}
                               onChange={(e) => handleSellingPriceChange(product, e.target.value)}
                               placeholder="حدد السعر"
-                              className={`w-full py-1.5 px-3 rounded-lg text-sm font-bold border transition-all ${
+                              className={`w-full py-1.5 pl-8 pr-2 text-center font-mono rounded-lg text-sm font-bold border transition-all ${
                                 selling <= 0
                                   ? 'border-amber-300 bg-amber-50/50 text-amber-900'
                                   : isLoss
@@ -1205,24 +1670,24 @@ export const PricingTable: React.FC<PricingTableProps> = ({
                                   : 'border-slate-300 bg-white text-slate-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500'
                               }`}
                             />
-                            <span className="absolute left-2.5 top-2 text-[11px] font-bold text-slate-400 pointer-events-none">
+                            <span className="absolute left-2 top-2 text-[11px] font-bold text-slate-400 pointer-events-none">
                               ج.م
                             </span>
                           </div>
                         </td>
 
-                        <td className="py-3 px-3">
+                        <td className="py-2.5 px-2 whitespace-nowrap">
                           {selling > 0 ? (
                             <div>
                               <div
-                                className={`text-sm font-black flex items-center gap-1 ${
+                                className={`text-sm font-black flex items-center gap-1 tabular-nums ${
                                   isLoss ? 'text-red-600' : isLowProfit ? 'text-amber-600' : 'text-emerald-600'
                                 }`}
                               >
-                                {profitAmount.toFixed(0)} ج.م
+                                {Number(profitAmount.toFixed(2))} ج.م
                                 {isLoss && <span className="text-[10px] font-bold">(خسارة!)</span>}
                               </div>
-                              <div className="text-[11px] text-slate-500">
+                              <div className="text-[11px] text-slate-500 tabular-nums">
                                 هامش: {profitMargin.toFixed(1)}%
                               </div>
                             </div>
@@ -1231,7 +1696,7 @@ export const PricingTable: React.FC<PricingTableProps> = ({
                           )}
                         </td>
 
-                        <td className="py-3 px-3 text-center">
+                        <td className="py-2.5 px-2 text-center">
                           <button
                             onClick={() => handleToggleInclude(product)}
                             className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors mx-auto cursor-pointer ${
@@ -1245,7 +1710,7 @@ export const PricingTable: React.FC<PricingTableProps> = ({
                           </button>
                         </td>
 
-                        <td className="py-3 px-4 text-center">
+                        <td className="py-2.5 px-2.5 text-center">
                           <div className="flex items-center justify-center gap-1.5">
                             <button
                               onClick={() => setEditModalProduct(product)}
@@ -1675,25 +2140,49 @@ export const PricingTable: React.FC<PricingTableProps> = ({
                   </div>
                 )}
 
-                {/* Rounding Rule */}
-                <div className="pt-2 border-t border-slate-200">
-                  <label className="block text-xs font-bold text-slate-800 mb-1.5">
-                    التقريب لتسهيل البيع للزبائن:
-                  </label>
-                  <div className="grid grid-cols-3 gap-2">
+                {/* Rounding & Fractions Rule */}
+                <div className="pt-2.5 border-t border-slate-200 space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label className="text-xs font-bold text-slate-800">
+                      نظام الكسور والتقريب في أسعار البيع:
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextAllow = !allowFractions;
+                        setAllowFractions(nextAllow);
+                        if (nextAllow && rounding > 1) setRounding(0);
+                        if (!nextAllow && rounding === 0) setRounding(5);
+                      }}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border cursor-pointer transition-colors ${
+                        allowFractions
+                          ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                          : 'bg-slate-100 border-slate-300 text-slate-700'
+                      }`}
+                    >
+                      {allowFractions ? 'قبول الكسور: مفعّل ✓' : 'قبول الكسور: مغلق (تقريب)'}
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     {[
-                      { label: 'لأقرب 1 جنيه', val: 1 },
-                      { label: 'لأقرب 5 جنيه (مفضل)', val: 5 },
+                      { label: 'بدون تقريب (يقبل الكسور مثل 7.5 و 13)', val: 0 },
+                      { label: 'لأقرب 1 جنيه (مثل 7 و 13)', val: 1 },
+                      { label: 'لأقرب 5 جنيه', val: 5 },
                       { label: 'لأقرب 10 جنيه', val: 10 },
                     ].map((r) => (
                       <button
                         key={r.val}
                         type="button"
-                        onClick={() => setRounding(r.val as any)}
-                        className={`py-1.5 px-2 rounded-lg border text-center text-xs font-bold transition-all cursor-pointer ${
+                        onClick={() => {
+                          setRounding(r.val as 0 | 1 | 5 | 10);
+                          if (r.val === 0 || r.val === 1) {
+                            setAllowFractions(true);
+                          }
+                        }}
+                        className={`py-1.5 px-2 rounded-lg border text-center text-[11px] font-bold transition-all cursor-pointer ${
                           rounding === r.val
                             ? 'border-emerald-500 bg-emerald-50 text-emerald-800 shadow-2xs'
-                            : 'border-slate-200 bg-white text-slate-600'
+                            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
                         }`}
                       >
                         {r.label}
@@ -1859,8 +2348,11 @@ export const PricingTable: React.FC<PricingTableProps> = ({
         <CropAdjustModal
           product={cropModalProduct}
           onClose={() => setCropModalProduct(null)}
-          onSave={(updated) => {
-            onProductsUpdated(products.map((p) => (p.id === updated.id ? updated : p)));
+          onSave={async (updated) => {
+            await saveProduct(updated);
+            const nextList = productsRef.current.map((p) => (p.id === updated.id ? updated : p));
+            productsRef.current = nextList;
+            onProductsUpdated(nextList);
           }}
         />
       )}

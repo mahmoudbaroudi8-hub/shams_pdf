@@ -2,7 +2,9 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   CatalogSettings,
   WatermarkType,
+  WatermarkLayer,
   AutoBackupSnapshot,
+  CompanyPhoneItem,
 } from '../types';
 import {
   saveSettings,
@@ -34,6 +36,8 @@ import {
   Image as ImageIcon,
   Sliders,
   Eye,
+  EyeOff,
+  Plus,
   Sparkles,
   RefreshCw,
   AlertTriangle,
@@ -447,9 +451,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {/* Company & Bio */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    اسم الشركة / المحل:
-                  </label>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <label className="text-xs font-bold text-slate-700">اسم الشركة / المحل:</label>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setLocalSettings((p) => ({
+                          ...p,
+                          show_company_name: p.show_company_name === false,
+                        }))
+                      }
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[10px] font-bold cursor-pointer whitespace-nowrap ${
+                        localSettings.show_company_name !== false
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                          : 'bg-slate-100 border-slate-200 text-slate-500'
+                      }`}
+                    >
+                      {localSettings.show_company_name !== false ? <Eye size={11} /> : <EyeOff size={11} />}
+                      <span>{localSettings.show_company_name !== false ? 'ظاهر' : 'مخفي'}</span>
+                    </button>
+                  </div>
                   <input
                     type="text"
                     value={localSettings.company_name}
@@ -462,9 +483,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    عنوان الكتالوج الرئيسي:
-                  </label>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <label className="text-xs font-bold text-slate-700">عنوان الكتالوج الرئيسي:</label>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setLocalSettings((p) => ({
+                          ...p,
+                          show_catalog_title: p.show_catalog_title === false,
+                        }))
+                      }
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[10px] font-bold cursor-pointer whitespace-nowrap ${
+                        localSettings.show_catalog_title !== false
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                          : 'bg-slate-100 border-slate-200 text-slate-500'
+                      }`}
+                    >
+                      {localSettings.show_catalog_title !== false ? <Eye size={11} /> : <EyeOff size={11} />}
+                      <span>{localSettings.show_catalog_title !== false ? 'ظاهر' : 'مخفي'}</span>
+                    </button>
+                  </div>
                   <input
                     type="text"
                     value={localSettings.catalog_title}
@@ -475,9 +513,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    نبذة قصيرة عن النشاط:
-                  </label>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <label className="text-xs font-bold text-slate-700">نبذة قصيرة عن النشاط:</label>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setLocalSettings((p) => ({
+                          ...p,
+                          show_business_bio: p.show_business_bio === false,
+                        }))
+                      }
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[10px] font-bold cursor-pointer whitespace-nowrap ${
+                        localSettings.show_business_bio !== false
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                          : 'bg-slate-100 border-slate-200 text-slate-500'
+                      }`}
+                    >
+                      {localSettings.show_business_bio !== false ? <Eye size={11} /> : <EyeOff size={11} />}
+                      <span>{localSettings.show_business_bio !== false ? 'ظاهر' : 'مخفي'}</span>
+                    </button>
+                  </div>
                   <input
                     type="text"
                     value={localSettings.business_bio}
@@ -491,12 +546,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {/* Contact Information */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 pt-1">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
-                    <Phone size={13} className="text-sky-600" />
-                    رقم الهاتف الأساسي:
-                  </label>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                      <Phone size={13} className="text-sky-600" />
+                      رقم الهاتف الأساسي:
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setLocalSettings((p) => ({ ...p, show_phone: p.show_phone === false }))
+                      }
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[10px] font-bold cursor-pointer whitespace-nowrap ${
+                        localSettings.show_phone !== false
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                          : 'bg-slate-100 border-slate-200 text-slate-500'
+                      }`}
+                    >
+                      {localSettings.show_phone !== false ? <Eye size={11} /> : <EyeOff size={11} />}
+                      <span>{localSettings.show_phone !== false ? 'ظاهر' : 'مخفي'}</span>
+                    </button>
+                  </div>
                   <input
                     type="text"
+                    dir="ltr"
                     value={localSettings.phone}
                     onChange={(e) => setLocalSettings((p) => ({ ...p, phone: e.target.value }))}
                     placeholder="010XXXXXXXX"
@@ -505,12 +577,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
-                    <MessageCircle size={13} className="text-emerald-600" />
-                    رقم الواتساب:
-                  </label>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                      <MessageCircle size={13} className="text-emerald-600" />
+                      رقم الواتساب:
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setLocalSettings((p) => ({ ...p, show_whatsapp: p.show_whatsapp === false }))
+                      }
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[10px] font-bold cursor-pointer whitespace-nowrap ${
+                        localSettings.show_whatsapp !== false
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                          : 'bg-slate-100 border-slate-200 text-slate-500'
+                      }`}
+                    >
+                      {localSettings.show_whatsapp !== false ? <Eye size={11} /> : <EyeOff size={11} />}
+                      <span>{localSettings.show_whatsapp !== false ? 'ظاهر' : 'مخفي'}</span>
+                    </button>
+                  </div>
                   <input
                     type="text"
+                    dir="ltr"
                     value={localSettings.whatsapp_number}
                     onChange={(e) => setLocalSettings((p) => ({ ...p, whatsapp_number: e.target.value }))}
                     placeholder="2010XXXXXXXX"
@@ -519,12 +608,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
-                    <Phone size={13} className="text-slate-500" />
-                    هاتف بديل (اختياري):
-                  </label>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                      <Phone size={13} className="text-slate-500" />
+                      هاتف بديل:
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setLocalSettings((p) => ({
+                          ...p,
+                          show_secondary_phone: p.show_secondary_phone === false,
+                        }))
+                      }
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[10px] font-bold cursor-pointer whitespace-nowrap ${
+                        localSettings.show_secondary_phone !== false
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                          : 'bg-slate-100 border-slate-200 text-slate-500'
+                      }`}
+                    >
+                      {localSettings.show_secondary_phone !== false ? <Eye size={11} /> : <EyeOff size={11} />}
+                      <span>{localSettings.show_secondary_phone !== false ? 'ظاهر' : 'مخفي'}</span>
+                    </button>
+                  </div>
                   <input
                     type="text"
+                    dir="ltr"
                     value={localSettings.secondary_phone}
                     onChange={(e) => setLocalSettings((p) => ({ ...p, secondary_phone: e.target.value }))}
                     placeholder="011XXXXXXXX"
@@ -533,13 +642,160 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               </div>
 
+              {/* Extra Mobile Numbers Manager */}
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <Phone size={14} className="text-sky-600" />
+                    أرقام موبايلات إضافية ({(localSettings.extra_phones || []).length}):
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next: CompanyPhoneItem = {
+                        id: `phone_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                        label:
+                          (localSettings.extra_phones || []).length === 0
+                            ? 'مبيعات'
+                            : `موبايل ${(localSettings.extra_phones || []).length + 1}`,
+                        number: '',
+                        visible: true,
+                        is_whatsapp: false,
+                      };
+                      setLocalSettings((p) => ({
+                        ...p,
+                        extra_phones: [...(p.extra_phones || []), next],
+                      }));
+                    }}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold cursor-pointer whitespace-nowrap"
+                  >
+                    <Plus size={13} />
+                    إضافة موبايل
+                  </button>
+                </div>
+
+                {(localSettings.extra_phones || []).length === 0 ? (
+                  <p className="text-[11px] text-slate-500">
+                    يمكنك إضافة عدة أرقام موبايلات مع التحكم في إظهار أو إخفاء كل رقم على حدة.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {(localSettings.extra_phones || []).map((ep) => {
+                      const isVis = ep.visible !== false;
+                      return (
+                        <div
+                          key={ep.id}
+                          className="flex flex-wrap sm:flex-nowrap items-center gap-2 bg-white p-2 rounded-xl border border-slate-200"
+                        >
+                          <input
+                            type="text"
+                            value={ep.label || ''}
+                            onChange={(e) =>
+                              setLocalSettings((p) => ({
+                                ...p,
+                                extra_phones: (p.extra_phones || []).map((item) =>
+                                  item.id === ep.id ? { ...item, label: e.target.value } : item
+                                ),
+                              }))
+                            }
+                            placeholder="الوصف (مبيعات / فرع)"
+                            className="w-28 p-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold"
+                          />
+                          <input
+                            type="text"
+                            dir="ltr"
+                            value={ep.number}
+                            onChange={(e) =>
+                              setLocalSettings((p) => ({
+                                ...p,
+                                extra_phones: (p.extra_phones || []).map((item) =>
+                                  item.id === ep.id ? { ...item, number: e.target.value } : item
+                                ),
+                              }))
+                            }
+                            placeholder="01XXXXXXXXX"
+                            className="flex-1 min-w-[120px] p-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono"
+                          />
+                          <label className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 cursor-pointer shrink-0">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(ep.is_whatsapp)}
+                              onChange={(e) =>
+                                setLocalSettings((p) => ({
+                                  ...p,
+                                  extra_phones: (p.extra_phones || []).map((item) =>
+                                    item.id === ep.id
+                                      ? { ...item, is_whatsapp: e.target.checked }
+                                      : item
+                                  ),
+                                }))
+                              }
+                              className="rounded text-emerald-600 w-3.5 h-3.5 cursor-pointer"
+                            />
+                            <span>واتساب</span>
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setLocalSettings((p) => ({
+                                ...p,
+                                extra_phones: (p.extra_phones || []).map((item) =>
+                                  item.id === ep.id ? { ...item, visible: !isVis } : item
+                                ),
+                              }))
+                            }
+                            className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-[10px] font-bold cursor-pointer whitespace-nowrap shrink-0 ${
+                              isVis
+                                ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                                : 'bg-slate-100 border-slate-200 text-slate-500'
+                            }`}
+                          >
+                            {isVis ? <Eye size={11} /> : <EyeOff size={11} />}
+                            <span>{isVis ? 'ظاهر' : 'مخفي'}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setLocalSettings((p) => ({
+                                ...p,
+                                extra_phones: (p.extra_phones || []).filter((item) => item.id !== ep.id),
+                              }))
+                            }
+                            className="p-1.5 rounded-lg border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 cursor-pointer shrink-0"
+                            title="حذف الرقم"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
               {/* Address, Email & Tax */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
-                    <MapPin size={13} className="text-rose-500" />
-                    العنوان:
-                  </label>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                      <MapPin size={13} className="text-rose-500" />
+                      العنوان:
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setLocalSettings((p) => ({ ...p, show_address: p.show_address === false }))
+                      }
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[10px] font-bold cursor-pointer whitespace-nowrap ${
+                        localSettings.show_address !== false
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                          : 'bg-slate-100 border-slate-200 text-slate-500'
+                      }`}
+                    >
+                      {localSettings.show_address !== false ? <Eye size={11} /> : <EyeOff size={11} />}
+                      <span>{localSettings.show_address !== false ? 'ظاهر' : 'مخفي'}</span>
+                    </button>
+                  </div>
                   <input
                     type="text"
                     value={localSettings.address}
@@ -550,12 +806,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
-                    <Mail size={13} className="text-indigo-500" />
-                    البريد الإلكتروني (اختياري):
-                  </label>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                      <Mail size={13} className="text-indigo-500" />
+                      البريد الإلكتروني:
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setLocalSettings((p) => ({ ...p, show_email: p.show_email === false }))
+                      }
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[10px] font-bold cursor-pointer whitespace-nowrap ${
+                        localSettings.show_email !== false
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                          : 'bg-slate-100 border-slate-200 text-slate-500'
+                      }`}
+                    >
+                      {localSettings.show_email !== false ? <Eye size={11} /> : <EyeOff size={11} />}
+                      <span>{localSettings.show_email !== false ? 'ظاهر' : 'مخفي'}</span>
+                    </button>
+                  </div>
                   <input
                     type="email"
+                    dir="ltr"
                     value={localSettings.email}
                     onChange={(e) => setLocalSettings((p) => ({ ...p, email: e.target.value }))}
                     placeholder="sales@example.com"
@@ -564,10 +837,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
-                    <FileText size={13} className="text-amber-600" />
-                    السجل التجاري / البطاقة الضريبية:
-                  </label>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                      <FileText size={13} className="text-amber-600" />
+                      السجل التجاري / الضريبي:
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setLocalSettings((p) => ({
+                          ...p,
+                          show_tax_or_cr: p.show_tax_or_cr === false,
+                        }))
+                      }
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[10px] font-bold cursor-pointer whitespace-nowrap ${
+                        localSettings.show_tax_or_cr !== false
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                          : 'bg-slate-100 border-slate-200 text-slate-500'
+                      }`}
+                    >
+                      {localSettings.show_tax_or_cr !== false ? <Eye size={11} /> : <EyeOff size={11} />}
+                      <span>{localSettings.show_tax_or_cr !== false ? 'ظاهر' : 'مخفي'}</span>
+                    </button>
+                  </div>
                   <input
                     type="text"
                     value={localSettings.tax_or_cr_number}
@@ -580,9 +872,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
               {/* Footer Note */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  نص التذييل (الفوتر في أسفل كل صفحة):
-                </label>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <label className="text-xs font-bold text-slate-700">
+                    نص التذييل (الفوتر في أسفل كل صفحة):
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setLocalSettings((p) => ({
+                        ...p,
+                        show_footer_note: p.show_footer_note === false,
+                      }))
+                    }
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[10px] font-bold cursor-pointer whitespace-nowrap ${
+                      localSettings.show_footer_note !== false
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                        : 'bg-slate-100 border-slate-200 text-slate-500'
+                    }`}
+                  >
+                    {localSettings.show_footer_note !== false ? <Eye size={11} /> : <EyeOff size={11} />}
+                    <span>{localSettings.show_footer_note !== false ? 'ظاهر' : 'مخفي'}</span>
+                  </button>
+                </div>
                 <textarea
                   rows={2}
                   value={localSettings.footer_note}
@@ -632,11 +943,51 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {/* Sliders for Opacity and Size (Active only if not 'none') */}
               {localSettings.watermark_type !== 'none' && (
                 <div className="space-y-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                  {/* Opacity Slider: 3% to 15% */}
+                  {/* Layer Selection: Front vs Back */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                      ترتيب طبقة الشعار (الظهور بالنسبة للمنتجات):
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        {
+                          id: 'front' as WatermarkLayer,
+                          label: 'طبقة علوية (فوق المنتجات)',
+                          desc: 'يظهر الشعار فوق الكروت والصور',
+                        },
+                        {
+                          id: 'back' as WatermarkLayer,
+                          label: 'طبقة سفلية (تحت المنتجات)',
+                          desc: 'يظهر في الخلفية خلف الكروت',
+                        },
+                      ].map((opt) => {
+                        const isSelected = (localSettings.watermark_layer || 'back') === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() =>
+                              setLocalSettings((p) => ({ ...p, watermark_layer: opt.id }))
+                            }
+                            className={`p-2.5 rounded-xl border text-right cursor-pointer transition-all ${
+                              isSelected
+                                ? 'border-sky-500 bg-sky-50 text-sky-950 ring-1 ring-sky-500'
+                                : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100'
+                            }`}
+                          >
+                            <div className="text-xs font-extrabold">{opt.label}</div>
+                            <div className="text-[11px] opacity-75 mt-0.5">{opt.desc}</div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Opacity Slider: 3% to 100% */}
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
                       <label className="text-xs font-bold text-slate-700">
-                        درجة الشفافية (الخفوت):
+                        درجة الشفافية (الوضوح):
                       </label>
                       <span className="text-xs font-bold font-mono bg-sky-100 text-sky-800 px-2 py-0.5 rounded">
                         {Math.round(localSettings.watermark_opacity * 100)}%
@@ -645,8 +996,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <input
                       type="range"
                       min={0.03}
-                      max={0.15}
-                      step={0.01}
+                      max={1}
+                      step={0.02}
                       value={localSettings.watermark_opacity}
                       onChange={(e) =>
                         setLocalSettings((p) => ({ ...p, watermark_opacity: parseFloat(e.target.value) }))
@@ -655,16 +1006,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     />
                     <div className="flex justify-between text-[10px] text-slate-400 mt-1">
                       <span>3% (خافت جداً)</span>
-                      <span>9% (متوسط متوازن)</span>
-                      <span>15% (واضح)</span>
+                      <span>35% (متوسط)</span>
+                      <span>100% (واضح كامل)</span>
                     </div>
                   </div>
 
-                  {/* Size Slider: 150px to 450px */}
+                  {/* Size Slider: 60px to 600px */}
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
                       <label className="text-xs font-bold text-slate-700">
-                        حجم الشعار في العلامة المائية:
+                        حجم الشعار في الصفحة:
                       </label>
                       <span className="text-xs font-bold font-mono bg-sky-100 text-sky-800 px-2 py-0.5 rounded">
                         {localSettings.watermark_size} بكسل
@@ -672,8 +1023,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
                     <input
                       type="range"
-                      min={150}
-                      max={450}
+                      min={60}
+                      max={600}
                       step={10}
                       value={localSettings.watermark_size}
                       onChange={(e) =>
@@ -682,9 +1033,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       className="w-full accent-sky-600 cursor-pointer"
                     />
                     <div className="flex justify-between text-[10px] text-slate-400 mt-1">
-                      <span>150 بكسل (صغير)</span>
+                      <span>60 بكسل (صغير)</span>
                       <span>280 بكسل (افتراضي)</span>
-                      <span>450 بكسل (كبير)</span>
+                      <span>600 بكسل (كبير)</span>
                     </div>
                   </div>
                 </div>
@@ -763,7 +1114,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
 
                   <div className="relative z-10 border-t border-slate-100 pt-1 text-center text-[9px] text-slate-400">
-                    {localSettings.phone || '010XXXXXXXX'} • {localSettings.address || 'العنوان المسجل'}
+                    {[
+                      localSettings.show_phone !== false ? localSettings.phone || '010XXXXXXXX' : '',
+                      localSettings.show_address !== false ? localSettings.address || 'العنوان المسجل' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' • ') || 'بيانات التواصل مخفية'}
                   </div>
                 </div>
               </div>

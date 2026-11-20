@@ -35,10 +35,21 @@ import {
   Upload,
   FileUp,
   FileText,
+  Palette,
+  Split,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { PDFDocument } from 'pdf-lib';
-import { Product, CatalogSettings, SavedCatalog, CatalogSectionHeader, DEFAULT_CATEGORIES } from '../types';
+import {
+  Product,
+  CatalogSettings,
+  SavedCatalog,
+  CatalogSectionHeader,
+  DEFAULT_CATEGORIES,
+  DEFAULT_SECTION_HEADER_CONFIG,
+  DEFAULT_CARD_CONFIG,
+  GridSymmetryMode,
+} from '../types';
 import {
   getAllCatalogs,
   saveCatalog,
@@ -49,13 +60,24 @@ import {
   saveStoredPdfFile,
   deleteStoredPdfFile,
 } from '../utils/db';
-import { generateCatalogPdf, buildPreviewHtml } from '../utils/pdfGenerator';
+import {
+  generateCatalogPdf,
+  buildPreviewHtml,
+  buildCatalogItemsSequence,
+  paginateCatalogPageItems,
+  resolveEffectiveGridLayout,
+  resolveSectionHeaderConfig,
+} from '../utils/pdfGenerator';
 import { convertPdfCatalogToProducts, PdfConversionProgress } from '../utils/pdfCatalogConverter';
 import { compressUploadedImage } from '../utils/imageCropper';
 import { CatalogReviewModal } from './CatalogReviewModal';
 import { ManualProductModal } from './ManualProductModal';
 import { UploadedPdfPagesPanel } from './UploadedPdfPagesPanel';
 import { GridLayoutSelector, GridCols, GridRows, GridLayoutMode } from './GridLayoutSelector';
+import { SectionEditorModal } from './SectionHeaderControls';
+import { CardDesignerModal } from './CardStyleControls';
+import { PdfSplitExportModal } from './PdfSplitExportModal';
+import { ResponsiveA4Preview } from './ResponsiveA4Preview';
 import { useUiFeedback } from './UiFeedbackProvider';
 
 interface MyCatalogsProps {
@@ -87,6 +109,12 @@ export const MyCatalogs: React.FC<MyCatalogsProps> = ({
   const [showEditProductModal, setShowEditProductModal] = useState(false);
   const [showManualProductModal, setShowManualProductModal] = useState(false);
   const [showMergeModal, setShowMergeModal] = useState(false);
+  const [showSectionEditorModal, setShowSectionEditorModal] = useState(false);
+  const [showCardDesignerModal, setShowCardDesignerModal] = useState(false);
+  const [showSplitModal, setShowSplitModal] = useState(false);
+  const [splitExternalBuffer, setSplitExternalBuffer] = useState<ArrayBuffer | null>(null);
+  const [isPreparingSplit, setIsPreparingSplit] = useState(false);
+  const [focusedProductId, setFocusedProductId] = useState<string | null>(null);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
 
   // Upload external PDF state
@@ -181,7 +209,7 @@ export const MyCatalogs: React.FC<MyCatalogsProps> = ({
       show_code: settings.show_code ?? true,
       show_category: settings.show_category ?? true,
       show_image: settings.show_image ?? true,
-      primary_color: settings.primary_color || '#0284c7',
+      primary_color: settings.primary_color || '#ea580c',
       footer_note: settings.footer_note || 'الأسعار قابلة للتغيير وفق تحديثات السوق',
       created_at: Date.now(),
       updated_at: Date.now(),
@@ -374,7 +402,7 @@ export const MyCatalogs: React.FC<MyCatalogsProps> = ({
         show_code: settings.show_code ?? true,
         show_category: settings.show_category ?? true,
         show_image: settings.show_image ?? true,
-        primary_color: settings.primary_color || '#0284c7',
+        primary_color: settings.primary_color || '#ea580c',
         footer_note: settings.footer_note || 'الأسعار قابلة للتغيير وفق تحديثات السوق',
         created_at: Date.now(),
         updated_at: Date.now(),
@@ -788,6 +816,49 @@ export const MyCatalogs: React.FC<MyCatalogsProps> = ({
     setPendingReviewAction({ action: 'whatsapp', title: 'مشاركة على واتساب' });
   };
 
+  const handleOpenSplitModal = async () => {
+    if (!currentCatalog) return;
+    if (currentCatalog.source_type === 'uploaded_pdf') {
+      setIsPreparingSplit(true);
+      try {
+        const blob = await buildCatalogPdfBlob(currentCatalog);
+        const buf = await blob.arrayBuffer();
+        setSplitExternalBuffer(buf);
+        setShowSplitModal(true);
+      } catch (err: any) {
+        toast.error(err?.message || 'تعذر تجهيز ملف الـ PDF للتقسيم.');
+      } finally {
+        setIsPreparingSplit(false);
+      }
+    } else {
+      setSplitExternalBuffer(null);
+      setShowSplitModal(true);
+    }
+  };
+
+  const handleExportSingleSectionPdf = async (categoryName: string) => {
+    if (!currentCatalog) return;
+    setIsGeneratingPdf(true);
+    setPdfProgress(15);
+    try {
+      const safeCat = categoryName.replace(/\s+/g, '_');
+      const fileName = `${currentCatalog.name.replace(/\s+/g, '_')}_قسم_${safeCat}.pdf`;
+      await generateCatalogPdf(products, settings, {
+        filename: fileName,
+        categoryFilter: categoryName,
+        customCatalog: currentCatalog,
+        action: 'download',
+        onProgress: (p) => setPdfProgress(p.percent),
+      });
+      showToast(`تم تحميل PDF قسم "${categoryName}" بنجاح!`);
+    } catch (err: any) {
+      toast.error('تعذر تحميل PDF القسم: ' + (err?.message || 'خطأ غير معروف'));
+    } finally {
+      setIsGeneratingPdf(false);
+      setPdfProgress(0);
+    }
+  };
+
   const executeDownloadPdf = async () => {
     if (!currentCatalog) return;
     setIsGeneratingPdf(true);
@@ -992,6 +1063,30 @@ export const MyCatalogs: React.FC<MyCatalogsProps> = ({
     return buildPreviewHtml(products, settings, undefined, 50, currentCatalog);
   }, [products, settings, currentCatalog]);
 
+  const estimatedTotalPages = useMemo(() => {
+    if (!currentCatalog) return 1;
+    const seq = buildCatalogItemsSequence(products, settings, currentCatalog);
+    const eff = resolveEffectiveGridLayout({
+      mode: currentCatalog.grid_layout_mode || settings.grid_layout_mode || 'manual',
+      symmetry: currentCatalog.grid_symmetry || settings.grid_symmetry || 'any',
+      columns: currentCatalog.columns_count || settings.products_per_row || 4,
+      rows: currentCatalog.rows_count ?? settings.rows_per_page,
+      itemCount: seq.filter((i) => i.type === 'product').length,
+    });
+    const productPages =
+      selectedProductsInOrder.length > 0
+        ? paginateCatalogPageItems(
+            seq,
+            eff.cols,
+            eff.rows,
+            resolveSectionHeaderConfig(settings, currentCatalog)
+          ).length
+        : 0;
+    const uploadedPages =
+      currentCatalog.source_type === 'uploaded_pdf' ? currentCatalog.pdf_page_count || 1 : 0;
+    return Math.max(1, uploadedPages + productPages);
+  }, [currentCatalog, products, settings, selectedProductsInOrder.length]);
+
   // ====================================================
   // RENDER: 1) Catalogs List View (when none selected)
   // ====================================================
@@ -1092,7 +1187,7 @@ export const MyCatalogs: React.FC<MyCatalogsProps> = ({
                       <div>
                         <span
                           className="w-3 h-3 rounded-full inline-block mb-1"
-                          style={{ backgroundColor: isUploadedPdf ? '#4f46e5' : cat.primary_color || '#0284c7' }}
+                          style={{ backgroundColor: isUploadedPdf ? '#4f46e5' : cat.primary_color || '#ea580c' }}
                         />
                         <h3 className="font-extrabold text-slate-900 text-base group-hover:text-sky-600 transition-colors">
                           {cat.name}
@@ -1617,7 +1712,7 @@ export const MyCatalogs: React.FC<MyCatalogsProps> = ({
       )}
 
       {/* Top Bar: Back button, Name edit, Action Buttons */}
-      <div className="bg-white border border-slate-200 rounded-3xl p-4 sm:p-6 shadow-xs flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4">
+      <div className="bg-white border border-slate-200 rounded-3xl p-4 sm:p-5 shadow-xs flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3.5">
         {/* Right side in RTL: Title & Back */}
         <div className="flex items-center gap-3">
           <button
@@ -1722,6 +1817,17 @@ export const MyCatalogs: React.FC<MyCatalogsProps> = ({
           </button>
 
           <button
+            type="button"
+            onClick={() => void handleOpenSplitModal()}
+            disabled={isPreparingSplit}
+            className="flex items-center gap-1.5 px-3.5 py-2.5 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white rounded-xl text-xs font-extrabold shadow-xs transition-all cursor-pointer"
+            title="تقسيم هذا الكتالوج إلى عدة ملفات PDF حسب الأقسام أو الصفحات"
+          >
+            {isPreparingSplit ? <RefreshCw size={15} className="animate-spin" /> : <Split size={15} />}
+            <span>تقسيم لكذا ملف</span>
+          </button>
+
+          <button
             onClick={handleDownloadPdf}
             className="flex items-center gap-1.5 px-4 py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-extrabold shadow-md shadow-sky-600/20 transition-all cursor-pointer"
           >
@@ -1771,9 +1877,9 @@ export const MyCatalogs: React.FC<MyCatalogsProps> = ({
             </>
           )}
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
             {/* Right Panel: Product Picker with Checkboxes (5 cols) */}
-            <div className="lg:col-span-5 bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">
+            <div className="xl:col-span-5 bg-white border border-slate-200 rounded-3xl p-4 sm:p-5 shadow-xs space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h3 className="font-extrabold text-slate-900 text-sm">
@@ -1931,7 +2037,7 @@ export const MyCatalogs: React.FC<MyCatalogsProps> = ({
           </div>
 
           {/* Left Panel: Selected Sequence, Section Headers & Reordering (7 cols) */}
-          <div className="lg:col-span-7 bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">
+          <div className="xl:col-span-7 bg-white border border-slate-200 rounded-3xl p-4 sm:p-5 shadow-xs space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h3 className="font-extrabold text-slate-900 text-sm">
@@ -1956,18 +2062,50 @@ export const MyCatalogs: React.FC<MyCatalogsProps> = ({
 
             {/* Quick Auto-Sort Controls & Category Auto-header toggle */}
             <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-slate-50 rounded-2xl border border-slate-200">
-              {/* Category auto headers switch */}
-              <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={currentCatalog.auto_category_headers}
-                  onChange={(e) =>
-                    handleUpdateCurrentCatalog({ auto_category_headers: e.target.checked })
-                  }
-                  className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500 cursor-pointer"
-                />
-                <span>فاصل تلقائي لكل قسم</span>
-              </label>
+              {/* Category auto headers switch + Section Properties */}
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextVal = !currentCatalog.auto_category_headers;
+                    handleUpdateCurrentCatalog({ auto_category_headers: nextVal });
+                    if (nextVal) handleAutoSort('category');
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-extrabold border transition-all cursor-pointer ${
+                    currentCatalog.auto_category_headers
+                      ? 'bg-sky-600 text-white border-sky-600 shadow-2xs'
+                      : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                  }`}
+                >
+                  <Layers size={14} />
+                  <span>
+                    {currentCatalog.auto_category_headers
+                      ? 'مقسّم حسب الأقسام ✓'
+                      : 'تقسيم العناصر حسب الأقسام'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowSectionEditorModal(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-white hover:bg-sky-50 text-sky-700 border border-sky-200 transition-colors cursor-pointer"
+                >
+                  <Edit3 size={13} />
+                  <span>ترتيب وإخفاء وتعديل الأقسام</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFocusedProductId(null);
+                    setShowCardDesignerModal(true);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-extrabold bg-orange-50 hover:bg-orange-100 text-orange-800 border border-orange-200 transition-colors cursor-pointer"
+                >
+                  <Palette size={13} />
+                  <span>تصميم الكارت (شكل وعرض ولون)</span>
+                </button>
+              </div>
 
               {/* Auto sort buttons */}
               <div className="flex items-center gap-1.5 text-[11px]">
@@ -2172,7 +2310,7 @@ export const MyCatalogs: React.FC<MyCatalogsProps> = ({
       {/* ==================================================== */}
       {activeSubTab === 'preview' && (
         <div className="space-y-6">
-          <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs flex items-center justify-between">
+          <div className="bg-white border border-slate-200 rounded-3xl p-4 sm:p-5 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-3">
             <div>
               <h3 className="font-extrabold text-slate-900 text-sm">
                 {currentCatalog.source_type === 'uploaded_pdf'
@@ -2186,13 +2324,46 @@ export const MyCatalogs: React.FC<MyCatalogsProps> = ({
               </p>
             </div>
 
-            <button
-              onClick={handleDownloadPdf}
-              className="flex items-center gap-2 px-5 py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-extrabold shadow-md shadow-sky-600/20 cursor-pointer"
-            >
-              <FileDown size={16} />
-              <span>تحميل الكتالوج PDF</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowSectionEditorModal(true)}
+                className="flex items-center gap-1.5 px-3.5 py-2.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold cursor-pointer"
+              >
+                <Edit3 size={14} className="text-orange-600" />
+                <span>ترتيب/إخفاء الأقسام</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void handleOpenSplitModal()}
+                disabled={isPreparingSplit}
+                className="flex items-center gap-1.5 px-3.5 py-2.5 bg-slate-800 hover:bg-slate-900 disabled:opacity-50 text-white rounded-xl text-xs font-extrabold cursor-pointer"
+              >
+                {isPreparingSplit ? <RefreshCw size={14} className="animate-spin" /> : <Split size={14} />}
+                <span>تقسيم لكذا ملف</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setFocusedProductId(null);
+                  setShowCardDesignerModal(true);
+                }}
+                className="flex items-center gap-1.5 px-3.5 py-2.5 bg-orange-50 hover:bg-orange-100 text-orange-800 border border-orange-200 rounded-xl text-xs font-extrabold cursor-pointer"
+              >
+                <Palette size={15} className="text-orange-600" />
+                <span>تصميم الكارت (شكل وعرض ولون)</span>
+              </button>
+
+              <button
+                onClick={handleDownloadPdf}
+                className="flex items-center gap-2 px-5 py-2.5 bg-orange-600 hover:bg-orange-700 text-white rounded-xl text-xs font-extrabold shadow-md shadow-orange-600/20 cursor-pointer"
+              >
+                <FileDown size={16} />
+                <span>تحميل الكتالوج PDF</span>
+              </button>
+            </div>
           </div>
 
           {/* Quick Live Grid Layout Controller right above Preview */}
@@ -2206,12 +2377,14 @@ export const MyCatalogs: React.FC<MyCatalogsProps> = ({
                     ((currentCatalog.columns_count || settings.products_per_row || 4) === 4 ? 4 : 3)) as GridRows
                 }
                 mode={(currentCatalog.grid_layout_mode || settings.grid_layout_mode || 'manual') as GridLayoutMode}
+                symmetry={(currentCatalog.grid_symmetry || settings.grid_symmetry || 'any') as GridSymmetryMode}
                 itemCount={selectedProductsInOrder.length}
-                onChange={(cols, rows, mode) =>
+                onChange={(cols, rows, mode, symmetry) =>
                   handleUpdateCurrentCatalog({
                     columns_count: cols,
                     rows_count: rows,
                     grid_layout_mode: mode ?? currentCatalog.grid_layout_mode ?? 'manual',
+                    grid_symmetry: symmetry ?? currentCatalog.grid_symmetry ?? 'any',
                   })
                 }
                 compact
@@ -2230,21 +2403,31 @@ export const MyCatalogs: React.FC<MyCatalogsProps> = ({
 
               {selectedProductsInOrder.length > 0 && (
                 <div className="space-y-3">
-                  <div className="bg-sky-50 border border-sky-200 rounded-2xl px-4 py-3 text-xs font-extrabold text-sky-900">
-                    ➕ الصفحات التكميلية المضافة للأصناف ({selectedProductsInOrder.length} صنف) — ستظهر مباشرة بعد صفحات الـ PDF أعلاه
+                  <div className="bg-orange-50 border border-orange-200 rounded-2xl px-4 py-3 text-xs font-extrabold text-orange-900">
+                    ➕ الصفحات التكميلية المضافة للأصناف ({selectedProductsInOrder.length} صنف) — اضغط على أي كارت لتعديل لونه وبياناته
                   </div>
-                  <div
-                    className="overflow-x-auto p-4 bg-slate-200/70 rounded-3xl flex justify-center"
-                    dangerouslySetInnerHTML={{ __html: previewHtml }}
-                  />
+                  <div className="p-3 sm:p-4 bg-slate-200/70 rounded-3xl">
+                    <ResponsiveA4Preview
+                      html={previewHtml}
+                      onCardClick={(pid) => {
+                        setFocusedProductId(pid);
+                        setShowCardDesignerModal(true);
+                      }}
+                    />
+                  </div>
                 </div>
               )}
             </div>
           ) : (
-            <div
-              className="overflow-x-auto p-4 bg-slate-200/70 rounded-3xl flex justify-center"
-              dangerouslySetInnerHTML={{ __html: previewHtml }}
-            />
+            <div className="p-3 sm:p-4 bg-slate-200/70 rounded-3xl">
+              <ResponsiveA4Preview
+                html={previewHtml}
+                onCardClick={(pid) => {
+                  setFocusedProductId(pid);
+                  setShowCardDesignerModal(true);
+                }}
+              />
+            </div>
           )}
         </div>
       )}
@@ -2660,12 +2843,14 @@ export const MyCatalogs: React.FC<MyCatalogsProps> = ({
                     ((currentCatalog.columns_count || settings.products_per_row || 4) === 4 ? 4 : 3)) as GridRows
                 }
                 mode={(currentCatalog.grid_layout_mode || settings.grid_layout_mode || 'manual') as GridLayoutMode}
+                symmetry={(currentCatalog.grid_symmetry || settings.grid_symmetry || 'any') as GridSymmetryMode}
                 itemCount={selectedProductsInOrder.length}
-                onChange={(cols, rows, mode) =>
+                onChange={(cols, rows, mode, symmetry) =>
                   handleUpdateCurrentCatalog({
                     columns_count: cols,
                     rows_count: rows,
                     grid_layout_mode: mode ?? currentCatalog.grid_layout_mode ?? 'manual',
+                    grid_symmetry: symmetry ?? currentCatalog.grid_symmetry ?? 'any',
                   })
                 }
               />
@@ -2732,12 +2917,12 @@ export const MyCatalogs: React.FC<MyCatalogsProps> = ({
                 <div className="flex items-center gap-3">
                   <input
                     type="color"
-                    value={currentCatalog.primary_color || '#0284c7'}
+                    value={currentCatalog.primary_color || '#ea580c'}
                     onChange={(e) => handleUpdateCurrentCatalog({ primary_color: e.target.value })}
                     className="w-10 h-10 rounded-xl cursor-pointer border border-slate-300"
                   />
                   <span className="text-xs font-mono font-bold text-slate-700">
-                    {currentCatalog.primary_color || '#0284c7'}
+                    {currentCatalog.primary_color || '#ea580c'}
                   </span>
                 </div>
               </div>
@@ -2790,6 +2975,124 @@ export const MyCatalogs: React.FC<MyCatalogsProps> = ({
             showToast(`تمت إضافة "${newProd.name}" وإدراجه في الكتالوج!`);
           }}
           onClose={() => setShowManualProductModal(false)}
+        />
+      )}
+
+      {/* Full Section Editor & Properties Modal */}
+      {currentCatalog && (
+        <SectionEditorModal
+          isOpen={showSectionEditorModal}
+          onClose={() => setShowSectionEditorModal(false)}
+          products={selectedProductsInOrder}
+          categories={settings.categories && settings.categories.length > 0 ? settings.categories : DEFAULT_CATEGORIES}
+          config={{
+            ...DEFAULT_SECTION_HEADER_CONFIG,
+            ...(settings.section_header_config || {}),
+            ...(currentCatalog.section_header_config || {}),
+            overrides: {
+              ...(settings.section_header_config?.overrides || {}),
+              ...(currentCatalog.section_header_config?.overrides || {}),
+            },
+          }}
+          primaryColor={currentCatalog.primary_color || settings.primary_color || '#ea580c'}
+          onChangeConfig={(next) => {
+            const ovs = next.overrides || {};
+            const prodMap = new Map(products.map((p) => [p.id, p]));
+            const sortedCats = [...(settings.categories && settings.categories.length > 0 ? settings.categories : DEFAULT_CATEGORIES)]
+              .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+            const rankMap = new Map<string, number>();
+            sortedCats.forEach((c, i) => rankMap.set(c.name, i));
+
+            const catProds = currentCatalog.product_ids
+              .map((id) => prodMap.get(id))
+              .filter((p): p is Product => Boolean(p));
+
+            catProds.sort((a, b) => {
+              const catA = a.category?.trim() || 'متنوعة';
+              const catB = b.category?.trim() || 'متنوعة';
+              const orderA = ovs[catA]?.order ?? (rankMap.has(catA) ? rankMap.get(catA)! : 999);
+              const orderB = ovs[catB]?.order ?? (rankMap.has(catB) ? rankMap.get(catB)! : 999);
+              if (orderA !== orderB) return orderA - orderB;
+              if (catA !== catB) return catA.localeCompare(catB, 'ar');
+              const sMode = ovs[catA]?.sort_products || 'default';
+              if (sMode === 'price_asc') return (a.selling_price || 0) - (b.selling_price || 0);
+              if (sMode === 'price_desc') return (b.selling_price || 0) - (a.selling_price || 0);
+              if (sMode === 'name') return a.name.localeCompare(b.name, 'ar');
+              return 0;
+            });
+
+            void handleUpdateCurrentCatalog({
+              section_header_config: next,
+              product_ids: currentCatalog.auto_category_headers
+                ? catProds.map((p) => p.id)
+                : currentCatalog.product_ids,
+            });
+          }}
+          onProductsUpdated={onProductsUpdated}
+          groupedEnabled={Boolean(currentCatalog.auto_category_headers)}
+          onToggleGrouped={() => {
+            const nextVal = !currentCatalog.auto_category_headers;
+            void handleUpdateCurrentCatalog({ auto_category_headers: nextVal });
+            if (nextVal) handleAutoSort('category');
+          }}
+          onExportSingleSection={
+            currentCatalog.source_type === 'uploaded_pdf' && selectedProductsInOrder.length === 0
+              ? undefined
+              : handleExportSingleSectionPdf
+          }
+          onOpenSplitModal={() => void handleOpenSplitModal()}
+        />
+      )}
+
+      {/* Multi-file Split PDF Export Modal */}
+      {currentCatalog && (
+        <PdfSplitExportModal
+          isOpen={showSplitModal}
+          onClose={() => {
+            setShowSplitModal(false);
+            setSplitExternalBuffer(null);
+          }}
+          products={products}
+          settings={settings}
+          customCatalog={currentCatalog}
+          externalPdfBuffer={splitExternalBuffer}
+          catalogTitle={currentCatalog.name}
+          totalEstimatedPages={estimatedTotalPages}
+        />
+      )}
+
+      {/* Card Designer Modal (Shape, Width, Colors & Per-Card Override) */}
+      {currentCatalog && (
+        <CardDesignerModal
+          isOpen={showCardDesignerModal}
+          onClose={() => setShowCardDesignerModal(false)}
+          config={{
+            ...DEFAULT_CARD_CONFIG,
+            ...(settings.card_config || {}),
+            ...(currentCatalog.card_config || {}),
+            per_product_overrides: {
+              ...(settings.card_config?.per_product_overrides || {}),
+              ...(currentCatalog.card_config?.per_product_overrides || {}),
+            },
+          }}
+          onChangeConfig={(next) => {
+            void handleUpdateCurrentCatalog({ card_config: next });
+          }}
+          products={selectedProductsInOrder}
+          initialProductId={focusedProductId}
+          visibility={{
+            show_image: currentCatalog.show_image ?? true,
+            show_code: currentCatalog.show_code ?? true,
+            show_category: currentCatalog.show_category ?? true,
+          }}
+          onChangeVisibility={(patch) => {
+            void handleUpdateCurrentCatalog({
+              ...(patch.show_image !== undefined ? { show_image: patch.show_image } : {}),
+              ...(patch.show_code !== undefined ? { show_code: patch.show_code } : {}),
+              ...(patch.show_category !== undefined ? { show_category: patch.show_category } : {}),
+            });
+          }}
+          onProductsUpdated={onProductsUpdated}
         />
       )}
     </div>

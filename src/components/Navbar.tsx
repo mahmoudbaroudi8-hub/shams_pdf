@@ -104,7 +104,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       label: 'جدول التسعير',
       shortLabel: 'تسعير',
       icon: DollarSign,
-      badge: totalProductsCount > 0 ? `${totalProductsCount}` : null,
+      badge: null,
     },
     { id: 'catalogs', label: 'كتالوجاتي', shortLabel: 'كتالوجاتي', icon: BookOpen, badge: null },
     { id: 'preview', label: 'معاينة الكتالوج', shortLabel: 'كتالوج', icon: FileText, badge: null },
@@ -136,27 +136,27 @@ export const Navbar: React.FC<NavbarProps> = ({
           isLogoMenuOpen ? 'z-50' : 'z-30'
         }`}
       >
-        <div className="w-full px-4 sm:px-6">
-          <div className="flex items-center justify-between h-16 gap-3">
-            {/* Right in RTL: Logo & Brand + Mobile Hamburger / Desktop Sidebar Toggle */}
+        <div className="w-full px-3 sm:px-5 lg:px-6">
+          <div className="flex items-center justify-between h-14 sm:h-16 gap-2.5 sm:gap-3">
+            {/* Right in RTL: Logo & Brand + Mobile/Tablet Hamburger / Desktop Sidebar Toggle */}
             <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-              {/* Hamburger Button on Mobile (< 640px) - Touch target >= 44px */}
+              {/* Hamburger Button on Mobile & Tablet (< 1024px) so narrow viewports keep full workspace width */}
               <button
                 type="button"
                 onClick={() => setIsDrawerOpen(true)}
-                className="sm:hidden shrink-0 flex items-center justify-center min-h-[44px] min-w-[44px] rounded-xl text-slate-700 hover:text-sky-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                className="lg:hidden shrink-0 flex items-center justify-center min-h-[42px] min-w-[42px] rounded-xl text-slate-700 hover:text-sky-600 hover:bg-slate-100 transition-colors cursor-pointer"
                 aria-label="فتح القائمة الرئيسية"
                 title="القائمة"
               >
-                <Menu size={24} />
+                <Menu size={22} />
               </button>
 
-              {/* Desktop Sidebar Toggle (>= 640px) */}
+              {/* Desktop Sidebar Toggle (>= 1024px) */}
               {onToggleDesktopCollapse && (
                 <button
                   type="button"
                   onClick={onToggleDesktopCollapse}
-                  className="hidden sm:flex shrink-0 items-center justify-center min-h-[40px] min-w-[40px] rounded-xl text-slate-600 hover:text-sky-600 hover:bg-slate-100 border border-slate-200/70 transition-colors cursor-pointer"
+                  className="hidden lg:flex shrink-0 items-center justify-center min-h-[38px] min-w-[38px] rounded-xl text-slate-600 hover:text-sky-600 hover:bg-slate-100 border border-slate-200/70 transition-colors cursor-pointer"
                   aria-label={isDesktopCollapsed ? 'توسيع القائمة الجانبية' : 'طي القائمة الجانبية'}
                   title={isDesktopCollapsed ? 'توسيع القائمة الجانبية' : 'طي القائمة الجانبية'}
                 >
@@ -180,14 +180,14 @@ export const Navbar: React.FC<NavbarProps> = ({
                   aria-expanded={isLogoMenuOpen}
                   aria-label="فتح قائمة الانتقالات"
                   title="اضغط لفتح قائمة الانتقالات بين الصفحات"
-                  className={`w-10 h-10 rounded-xl overflow-hidden border border-slate-200 bg-white flex items-center justify-center shadow-md shrink-0 cursor-pointer transition-all hover:scale-105 active:scale-95 ${
+                  className={`w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center shadow-md shrink-0 cursor-pointer transition-all hover:scale-105 active:scale-95 ${
                     isLogoMenuOpen ? 'ring-2 ring-sky-400 ring-offset-2' : ''
                   }`}
                 >
                   <img
                     src="/app-logo.png"
                     alt="شعار التطبيق"
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-contain"
                   />
                 </div>
                 <div className="min-w-0">
@@ -218,11 +218,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                       {/* Side Menu Header */}
                       <div className="flex items-center justify-between px-4 py-3.5 border-b border-slate-100 shrink-0">
                         <div className="flex items-center gap-2.5">
-                          <div className="w-9 h-9 rounded-xl overflow-hidden border border-slate-200 bg-white flex items-center justify-center shadow-xs shrink-0">
+                          <div className="w-9 h-9 rounded-xl overflow-hidden flex items-center justify-center shadow-xs shrink-0">
                             <img
                               src="/app-logo.png"
                               alt="شعار التطبيق"
-                              className="w-full h-full object-cover"
+                              className="w-full h-full object-contain"
                             />
                           </div>
                           <div>
@@ -359,9 +359,9 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </header>
 
-      {/* 2) Right Drawer (Mobile < 640px) */}
+      {/* 2) Right Drawer (Mobile & Tablet < 1024px) */}
       {isDrawerOpen && (
-        <div className="fixed inset-0 z-50 sm:hidden animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 lg:hidden animate-in fade-in duration-200">
           {/* Backdrop */}
           <div
             className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity"
@@ -374,11 +374,11 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* Drawer Header */}
             <div className="flex items-center justify-between p-4 border-b border-slate-100">
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl overflow-hidden border border-slate-200 bg-white flex items-center justify-center shadow-xs shrink-0">
+                <div className="w-9 h-9 rounded-xl overflow-hidden flex items-center justify-center shadow-xs shrink-0">
                   <img
                     src="/app-logo.png"
                     alt="شعار التطبيق"
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-contain"
                   />
                 </div>
                 <div>
@@ -557,7 +557,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
       label: 'الأصناف والتسعير',
       shortLabel: 'الأصناف',
       icon: DollarSign,
-      badge: totalProductsCount > 0 ? `${totalProductsCount}` : null,
+      badge: null,
     },
     { id: 'catalogs', label: 'كتالوجاتي', shortLabel: 'كتالوجاتي', icon: BookOpen, badge: null },
     { id: 'preview', label: 'معاينة الكتالوج', shortLabel: 'كتالوج', icon: FileText, badge: null },
@@ -574,8 +574,8 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   return (
     <aside
       aria-label="قائمة الانتقالات الجانبية للكمبيوتر"
-      className={`no-print hidden sm:flex flex-col border-l border-slate-200 bg-white transition-all duration-200 shrink-0 sticky top-16 h-[calc(100vh-4rem)] shadow-2xs z-20 ${
-        isCollapsed ? 'w-16 lg:w-20' : 'w-52 md:w-60 lg:w-64'
+      className={`no-print hidden lg:flex flex-col border-l border-slate-200 bg-white transition-all duration-200 shrink-0 sticky top-16 h-[calc(100dvh-4rem)] shadow-2xs z-20 ${
+        isCollapsed ? 'w-16' : 'w-52 xl:w-56'
       }`}
     >
       {/* Sidebar Header & Collapse Toggle */}

@@ -346,7 +346,7 @@ export const ApiUsageTab: React.FC<ApiUsageTabProps> = ({
     <div className="space-y-6" dir="rtl">
       {/* Daily Request Limit Banner */}
       {metrics.isDailyLimitReached && (
-        <div className="p-4 bg-rose-50 border-2 border-rose-300 rounded-2xl flex items-center justify-between gap-3 text-rose-900 animate-in fade-in">
+        <div className="p-4 bg-rose-50 border-2 border-rose-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-rose-900 animate-in fade-in">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center text-rose-700 shrink-0 font-bold">
               <AlertTriangle size={20} />
@@ -371,7 +371,7 @@ export const ApiUsageTab: React.FC<ApiUsageTabProps> = ({
 
       {/* Budget Warning Banner if 80% or 100% */}
       {metrics.isBudget100 && (
-        <div className="p-4 bg-red-50 border-2 border-red-300 rounded-2xl flex items-center justify-between gap-3 text-red-900 animate-in fade-in">
+        <div className="p-4 bg-red-50 border-2 border-red-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-red-900 animate-in fade-in">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center text-red-700 shrink-0 font-bold">
               <AlertTriangle size={20} />
@@ -395,7 +395,7 @@ export const ApiUsageTab: React.FC<ApiUsageTabProps> = ({
       )}
 
       {metrics.isBudget80 && !metrics.isBudget100 && (
-        <div className="p-4 bg-amber-50 border border-amber-300 rounded-2xl flex items-center justify-between gap-3 text-amber-900 animate-in fade-in">
+        <div className="p-4 bg-amber-50 border border-amber-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-900 animate-in fade-in">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center text-amber-800 shrink-0">
               <AlertTriangle size={18} />
@@ -430,7 +430,7 @@ export const ApiUsageTab: React.FC<ApiUsageTabProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => setShowCostSettingsModal(true)}
             className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"

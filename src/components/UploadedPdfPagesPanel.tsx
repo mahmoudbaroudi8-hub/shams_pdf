@@ -15,11 +15,13 @@ import {
   X,
   ArrowRight,
   ArrowLeft,
+  Split,
 } from 'lucide-react';
 import { SavedCatalog } from '../types';
 import { getStoredPdfFile, saveStoredPdfFile } from '../utils/db';
 import { loadPdfDocument } from '../utils/pdfExtractor';
 import { PdfPageEditorModal } from './PdfPageEditorModal';
+import { PdfSplitExportModal } from './PdfSplitExportModal';
 import { useUiFeedback } from './UiFeedbackProvider';
 
 interface UploadedPdfPagesPanelProps {
@@ -79,6 +81,23 @@ export const UploadedPdfPagesPanel: React.FC<UploadedPdfPagesPanelProps> = ({
   const pdfBufferRef = useRef<ArrayBuffer | null>(null);
   const lastPdfFileIdRef = useRef<string | undefined>(undefined);
   const [pdfRenderRevision, setPdfRenderRevision] = useState(0);
+  const [showSplitModal, setShowSplitModal] = useState(false);
+  const [splitPdfBuffer, setSplitPdfBuffer] = useState<ArrayBuffer | null>(null);
+
+  const handleOpenSplitModal = async () => {
+    let buf = pdfBufferRef.current;
+    if (!buf && catalog.pdf_file_id) {
+      const stored = await getStoredPdfFile(catalog.pdf_file_id);
+      buf = stored?.array_buffer || null;
+      pdfBufferRef.current = buf;
+    }
+    if (!buf) {
+      toast.error('تعذر تحميل ملف الـ PDF لتقسيمه.');
+      return;
+    }
+    setSplitPdfBuffer(buf.slice(0));
+    setShowSplitModal(true);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -478,6 +497,17 @@ export const UploadedPdfPagesPanel: React.FC<UploadedPdfPagesPanelProps> = ({
             <span>+ إضافة صفحات PDF</span>
           </button>
 
+          <button
+            type="button"
+            onClick={handleOpenSplitModal}
+            disabled={isMutating || pageCount === 0}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white text-xs font-extrabold rounded-xl shadow-xs transition-colors cursor-pointer"
+            title="تقسيم صفحات هذا الـ PDF إلى عدة ملفات مستقلة"
+          >
+            <Split size={15} />
+            <span>تقسيم لكذا ملف</span>
+          </button>
+
           {mode === 'manage' && onConvertToEditableCatalog && (
             <button
               type="button"
@@ -854,6 +884,41 @@ export const UploadedPdfPagesPanel: React.FC<UploadedPdfPagesPanelProps> = ({
           </div>
         </div>
       )}
+      {/* Multi-file Split PDF Modal */}
+      <PdfSplitExportModal
+        isOpen={showSplitModal}
+        onClose={() => {
+          setShowSplitModal(false);
+          setSplitPdfBuffer(null);
+        }}
+        products={[]}
+        settings={{
+          company_name: catalog.company_name || catalog.name,
+          store_name: catalog.name,
+          business_bio: catalog.business_bio || '',
+          phone: catalog.phone || '',
+          whatsapp_number: catalog.whatsapp_number || '',
+          secondary_phone: '',
+          address: '',
+          email: '',
+          tax_or_cr_number: '',
+          footer_note: catalog.footer_note || '',
+          catalog_title: catalog.name,
+          logo_url: catalog.logo_url || '',
+          primary_color: catalog.primary_color || '#ea580c',
+          watermark_type: 'none',
+          watermark_opacity: 0.08,
+          watermark_size: 250,
+          products_per_row: catalog.columns_count || 4,
+          show_available_models: false,
+          show_specification: false,
+          show_brand_on_card: false,
+          detected_price_target: 'wholesale',
+        }}
+        externalPdfBuffer={splitPdfBuffer}
+        catalogTitle={catalog.name}
+        totalEstimatedPages={Math.max(1, pageCount)}
+      />
     </div>
   );
 };

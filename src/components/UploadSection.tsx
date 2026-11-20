@@ -657,6 +657,12 @@ export const UploadSection: React.FC<UploadSectionProps> = ({
                   existingProducts={existingProducts}
                   onProductsUpdated={onProductsUpdated}
                   onClearQueue={() => setImageFilesQueue([])}
+                  onRemoveFile={(fileToRemove) =>
+                    setImageFilesQueue((prev) => prev.filter((f) => f !== fileToRemove))
+                  }
+                  onReplaceFile={(oldFile, newFile) =>
+                    setImageFilesQueue((prev) => prev.map((f) => (f === oldFile ? newFile : f)))
+                  }
                   onNavigateToIncomplete={() => setActiveView('incomplete')}
                 />
               </div>
@@ -671,6 +677,7 @@ export const UploadSection: React.FC<UploadSectionProps> = ({
           products={existingProducts}
           settings={settings}
           onProductsUpdated={onProductsUpdated}
+          onSettingsUpdated={onSettingsUpdated}
           onNavigateToPricing={onNavigateToPricing}
         />
       )}
@@ -755,10 +762,10 @@ export const UploadSection: React.FC<UploadSectionProps> = ({
 
           {/* Files Queue */}
           {filesQueue.length > 0 && !activePdfBatchFile && !activeBatchSession && (
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4">
-              <div className="flex items-center justify-between">
+            <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <h3 className="font-bold text-slate-800 text-xs">قائمة ملفات PDF ({filesQueue.length} ملف)</h3>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     onClick={() => setActivePdfBatchFile(filesQueue[0])}
                     className="flex items-center gap-1.5 px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-xl cursor-pointer shadow-xs"
@@ -846,7 +853,7 @@ export const UploadSection: React.FC<UploadSectionProps> = ({
       {/* VIEW: EXTRACTION REPORTS */}
       {activeView === 'reports' && (
         <div className="space-y-4">
-          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
+          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
             <h3 className="font-bold text-slate-800 text-xs flex items-center gap-2">
               <FileCheck2 size={16} className="text-sky-600" />
               سجل تقارير قراءة صفحات الكتالوج ({extractionReports.length} صفحة)

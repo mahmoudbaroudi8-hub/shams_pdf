@@ -22,8 +22,12 @@ import {
   RefreshCw,
   FolderArchive,
   Layers,
+  Eye,
+  FileText,
 } from 'lucide-react';
 import { PDFDocument } from 'pdf-lib';
+import { generateCatalogPdf } from '../utils/pdfGenerator';
+import { PdfBlobPreviewModal } from './PdfBlobPreviewModal';
 
 interface PdfToolsTabProps {
   products: Product[];
@@ -47,8 +51,16 @@ export const PdfToolsTab: React.FC<PdfToolsTabProps> = ({ products, settings }) 
   const [pagesPerChunk, setPagesPerChunk] = useState<number>(2);
   const [customRangesText, setCustomRangesText] = useState('1-3, 4-6');
   const [isSplitting, setIsSplitting] = useState(false);
+  const [isLoadingCurrentCatalog, setIsLoadingCurrentCatalog] = useState(false);
   const [splitSuccess, setSplitSuccess] = useState<string | null>(null);
   const [splitError, setSplitError] = useState<string | null>(null);
+  const [splitResultsList, setSplitResultsList] = useState<
+    { id: string; filename: string; bytes: Uint8Array; pageCount: number }[]
+  >([]);
+  const [previewSplitItem, setPreviewSplitItem] = useState<{
+    blob: Blob;
+    filename: string;
+  } | null>(null);
   const splitInputRef = useRef<HTMLInputElement>(null);
 
   // Handle files selected for merge
@@ -147,6 +159,7 @@ export const PdfToolsTab: React.FC<PdfToolsTabProps> = ({ products, settings }) 
     const file = e.target.files[0];
     setSplitError(null);
     setSplitSuccess(null);
+    setSplitResultsList([]);
 
     try {
       const buffer = await file.arrayBuffer();
@@ -171,6 +184,49 @@ export const PdfToolsTab: React.FC<PdfToolsTabProps> = ({ products, settings }) 
     }
 
     e.target.value = '';
+  };
+
+  // Load current app catalog PDF directly for splitting without manual export/re-upload
+  const handleLoadCurrentCatalogForSplit = async () => {
+    const eligible = products.filter(
+      (p) => p.included_in_catalog && (p.selling_price || 0) > 0 && p.name?.trim()
+    );
+    if (eligible.length === 0) {
+      setSplitError('لا توجد منتجات مسعرة ومفعلة في الكتالوج الحالي بعد.');
+      return;
+    }
+
+    setIsLoadingCurrentCatalog(true);
+    setSplitError(null);
+    setSplitSuccess(null);
+    setSplitResultsList([]);
+    try {
+      const blob = (await generateCatalogPdf(products, settings, {
+        action: 'blob',
+      })) as Blob;
+      const buffer = await blob.arrayBuffer();
+      const doc = await PDFDocument.load(buffer, { ignoreEncryption: true });
+      const totalPages = doc.getPageCount();
+      const titleSlug = (settings.catalog_title || settings.store_name || 'كتالوج_التطبيق')
+        .trim()
+        .replace(/\s+/g, '_');
+
+      setSplitFile({
+        name: titleSlug,
+        buffer,
+        totalPages,
+      });
+      if (totalPages > 2) {
+        const half = Math.ceil(totalPages / 2);
+        setCustomRangesText(`1-${half}, ${half + 1}-${totalPages}`);
+      } else {
+        setCustomRangesText(totalPages === 2 ? '1, 2' : '1-1');
+      }
+    } catch (err: any) {
+      setSplitError(err?.message || 'تعذر تجهيز ملف الكتالوج الحالي للتقسيم.');
+    } finally {
+      setIsLoadingCurrentCatalog(false);
+    }
   };
 
   // Execute split
@@ -250,16 +306,52 @@ export const PdfToolsTab: React.FC<PdfToolsTabProps> = ({ products, settings }) 
         throw new Error('لم ينتج أي ملفات عن التقسيم.');
       }
 
-      // Download all split files in a single ZIP
-      const zipName = `${splitFile.name}_مقسم_${splitResults.length}_أجزاء.zip`;
-      await zipFilesAndDownload(splitResults, zipName);
+      const enriched = await Promise.all(
+        splitResults.map(async (item, idx) => {
+          let pageCount = 1;
+          try {
+            const doc = await PDFDocument.load(item.bytes, { ignoreEncryption: true });
+            pageCount = doc.getPageCount();
+          } catch {
+            // fallback 1
+          }
+          return {
+            id: `split_${idx}_${Date.now()}`,
+            filename: item.filename,
+            bytes: item.bytes,
+            pageCount,
+          };
+        })
+      );
 
-      setSplitSuccess(`تم تقسيم الملف إلى ${splitResults.length} أجزاء بنجاح وتنزيلها مضغوطة في ملف ZIP!`);
+      setSplitResultsList(enriched);
+      setSplitSuccess(
+        `تم تقسيم الملف إلى ${enriched.length} ملفات PDF جاهزة للمعاينة أو التنزيل الفردي أو بصيغة ZIP!`
+      );
     } catch (err: any) {
       setSplitError(err.message || 'فشل تقسيم الملف.');
     } finally {
       setIsSplitting(false);
     }
+  };
+
+  const handleDownloadSplitZip = async () => {
+    if (!splitFile || splitResultsList.length === 0) return;
+    const zipName = `${splitFile.name}_مقسم_${splitResultsList.length}_أجزاء.zip`;
+    await zipFilesAndDownload(
+      splitResultsList.map((r) => ({ filename: r.filename, bytes: r.bytes })),
+      zipName
+    );
+  };
+
+  const handleDownloadSplitSingle = (item: { filename: string; bytes: Uint8Array }) => {
+    const blob = new Blob([item.bytes.buffer as ArrayBuffer], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = item.filename;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
   };
 
   return (
@@ -412,16 +504,16 @@ export const PdfToolsTab: React.FC<PdfToolsTabProps> = ({ products, settings }) 
 
             {mergeFiles.length > 0 && (
               <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 min-w-0 flex-1 sm:flex-initial">
                   <span className="text-xs font-bold text-slate-700 shrink-0">اسم الملف المدمج:</span>
                   <input
                     type="text"
                     value={mergedOutputName}
                     onChange={(e) => setMergedOutputName(e.target.value)}
                     placeholder="اسم الملف..."
-                    className="p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-sky-500 w-64"
+                    className="p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-sky-500 flex-1 sm:w-64 min-w-0"
                   />
-                  <span className="text-xs text-slate-400 font-mono">.pdf</span>
+                  <span className="text-xs text-slate-400 font-mono shrink-0">.pdf</span>
                 </div>
 
                 <button
@@ -483,17 +575,39 @@ export const PdfToolsTab: React.FC<PdfToolsTabProps> = ({ products, settings }) 
             />
 
             {!splitFile ? (
-              <div
-                onClick={() => splitInputRef.current?.click()}
-                className="p-10 text-center border-2 border-dashed border-slate-200 rounded-2xl cursor-pointer hover:bg-slate-50 transition-colors"
-              >
-                <Split size={36} className="mx-auto mb-2 text-slate-300" />
-                <p className="font-bold text-sm text-slate-700">اضغط لاختيار ملف PDF لتقسيمه</p>
-                <p className="text-xs text-slate-400 mt-1">يدعم التقسيم بالمدى أو كل N صفحات في ثوانٍ</p>
+              <div className="space-y-3">
+                <div
+                  onClick={() => splitInputRef.current?.click()}
+                  className="p-10 text-center border-2 border-dashed border-slate-200 rounded-2xl cursor-pointer hover:bg-slate-50 transition-colors"
+                >
+                  <Split size={36} className="mx-auto mb-2 text-slate-300" />
+                  <p className="font-bold text-sm text-slate-700">اضغط لاختيار ملف PDF من جهازك لتقسيمه</p>
+                  <p className="text-xs text-slate-400 mt-1">يدعم التقسيم بالمدى أو كل N صفحات في ثوانٍ</p>
+                </div>
+
+                <div className="flex items-center justify-center">
+                  <button
+                    type="button"
+                    onClick={handleLoadCurrentCatalogForSplit}
+                    disabled={isLoadingCurrentCatalog}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white rounded-xl text-xs font-extrabold shadow-xs cursor-pointer"
+                  >
+                    {isLoadingCurrentCatalog ? (
+                      <RefreshCw size={14} className="animate-spin" />
+                    ) : (
+                      <FileText size={14} />
+                    )}
+                    <span>
+                      {isLoadingCurrentCatalog
+                        ? 'جاري تجهيز كتالوج التطبيق...'
+                        : 'أو استخدم الكتالوج الحالي في التطبيق مباشرة'}
+                    </span>
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="flex items-center justify-between p-3 bg-sky-50/70 border border-sky-200 rounded-xl">
+                <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-sky-50/70 border border-sky-200 rounded-xl">
                   <div className="flex items-center gap-2.5">
                     <FileCheck size={20} className="text-sky-600" />
                     <div>
@@ -502,12 +616,23 @@ export const PdfToolsTab: React.FC<PdfToolsTabProps> = ({ products, settings }) 
                     </div>
                   </div>
 
-                  <button
-                    onClick={() => splitInputRef.current?.click()}
-                    className="px-3 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer"
-                  >
-                    تغيير الملف
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={handleLoadCurrentCatalogForSplit}
+                      disabled={isLoadingCurrentCatalog}
+                      className="px-3 py-1 bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-800 rounded-lg text-xs font-bold cursor-pointer"
+                    >
+                      {isLoadingCurrentCatalog ? 'جاري التحميل...' : 'تحديث بكتالوج التطبيق'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => splitInputRef.current?.click()}
+                      className="px-3 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer"
+                    >
+                      تغيير الملف
+                    </button>
+                  </div>
                 </div>
 
                 {/* Split Modes */}
@@ -605,30 +730,102 @@ export const PdfToolsTab: React.FC<PdfToolsTabProps> = ({ products, settings }) 
                   </div>
                 )}
 
-                <div className="pt-3 border-t border-slate-100 flex items-center justify-end">
+                <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-end gap-2">
                   <button
                     onClick={handleExecuteSplit}
                     disabled={isSplitting}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-sky-600/20 transition-all cursor-pointer"
+                    className="flex items-center gap-2 px-5 py-2.5 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-orange-600/20 transition-all cursor-pointer"
                   >
                     {isSplitting ? (
                       <>
                         <RefreshCw size={15} className="animate-spin" />
-                        <span>جاري التقسيم والضغط...</span>
+                        <span>جاري التقسيم...</span>
                       </>
                     ) : (
                       <>
-                        <FolderArchive size={15} />
-                        <span>تقسيم وتنزيل في ملف ZIP</span>
+                        <Split size={15} />
+                        <span>تقسيم الملف الآن</span>
                       </>
                     )}
                   </button>
                 </div>
+
+                {splitResultsList.length > 0 && (
+                  <div className="pt-4 border-t border-slate-200 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs font-extrabold text-slate-800">
+                        الملفات الناتجة ({splitResultsList.length} ملف PDF):
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleDownloadSplitZip}
+                        className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-extrabold cursor-pointer"
+                      >
+                        <FolderArchive size={14} />
+                        <span>تنزيل الكل مضغوطاً (ZIP)</span>
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                      {splitResultsList.map((item, idx) => {
+                        const kb = Math.max(1, Math.round(item.bytes.byteLength / 1024));
+                        return (
+                          <div
+                            key={item.id}
+                            className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between gap-2"
+                          >
+                            <div className="min-w-0">
+                              <p className="text-xs font-extrabold text-slate-800 truncate">
+                                {idx + 1}. {item.filename}
+                              </p>
+                              <p className="text-[11px] text-slate-500">
+                                {item.pageCount} صفحة • {kb} KB
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setPreviewSplitItem({
+                                    blob: new Blob([item.bytes.buffer as ArrayBuffer], {
+                                      type: 'application/pdf',
+                                    }),
+                                    filename: item.filename,
+                                  })
+                                }
+                                className="flex items-center gap-1 px-2.5 py-1.5 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 rounded-lg text-[11px] font-bold cursor-pointer"
+                              >
+                                <Eye size={12} />
+                                <span>معاينة</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDownloadSplitSingle(item)}
+                                className="flex items-center gap-1 px-2.5 py-1.5 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-[11px] font-extrabold cursor-pointer"
+                              >
+                                <Download size={12} />
+                                <span>تنزيل</span>
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
         </div>
       )}
+
+      <PdfBlobPreviewModal
+        isOpen={Boolean(previewSplitItem)}
+        pdfBlob={previewSplitItem?.blob || null}
+        title={previewSplitItem ? `معاينة: ${previewSplitItem.filename}` : undefined}
+        downloadFilename={previewSplitItem?.filename || 'ملف_مقسم.pdf'}
+        onClose={() => setPreviewSplitItem(null)}
+      />
     </div>
   );
 };

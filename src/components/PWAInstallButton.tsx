@@ -76,7 +76,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ compactMobil
                 <img
                   src="/app-logo.png"
                   alt="شعار التطبيق"
-                  className="w-11 h-11 rounded-xl border border-slate-200 shadow-xs object-cover shrink-0"
+                  className="w-11 h-11 rounded-xl shadow-xs object-contain shrink-0"
                 />
                 <div>
                   <h3 className="text-sm sm:text-base font-black text-slate-900">

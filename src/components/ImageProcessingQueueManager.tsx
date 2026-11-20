@@ -1,7 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Product, ProductCategory, CatalogSettings } from '../types';
-import { compressUploadedImage, cropAndCompressProductImage, isBoxValid } from '../utils/imageCropper';
+import {
+  compressUploadedImage,
+  cropAndCompressProductImage,
+  isBoxValid,
+  readFileAsWorkingDataUrl,
+  dataUrlToFile,
+} from '../utils/imageCropper';
 import { saveProduct, logApiUsage } from '../utils/db';
+import { CropAdjustModal } from './CropAdjustModal';
 import {
   Play,
   RotateCcw,
@@ -18,6 +25,8 @@ import {
   X,
   FileQuestion,
   ListFilter,
+  Crop,
+  Trash2,
 } from 'lucide-react';
 
 export type ImageItemStatus = 'pending' | 'processing' | 'success' | 'needs_review' | 'failed';
@@ -45,6 +54,8 @@ interface ImageProcessingQueueManagerProps {
   existingProducts: Product[];
   onProductsUpdated: (products: Product[]) => void;
   onClearQueue: () => void;
+  onRemoveFile?: (fileToRemove: File) => void;
+  onReplaceFile?: (oldFile: File, newFile: File) => void;
   onNavigateToIncomplete: () => void;
 }
 
@@ -54,6 +65,8 @@ export const ImageProcessingQueueManager: React.FC<ImageProcessingQueueManagerPr
   settings,
   existingProducts,
   onProductsUpdated,
+  onRemoveFile,
+  onReplaceFile,
   onNavigateToIncomplete,
 }) => {
   // Queue items state
@@ -63,6 +76,7 @@ export const ImageProcessingQueueManager: React.FC<ImageProcessingQueueManagerPr
       file,
       name: file.name,
       size: file.size,
+      thumbnailUrl: file.type?.startsWith('image/') ? URL.createObjectURL(file) : undefined,
       status: 'pending',
     }))
   );
@@ -76,6 +90,10 @@ export const ImageProcessingQueueManager: React.FC<ImageProcessingQueueManagerPr
   const [hasFinished, setHasFinished] = useState(false);
   const [copiedReport, setCopiedReport] = useState(false);
   const [filterView, setFilterView] = useState<'all' | 'failed' | 'needs_review'>('all');
+  const [editingQueueItem, setEditingQueueItem] = useState<{
+    item: ImageQueueItem;
+    rawUrl: string;
+  } | null>(null);
 
   const cancelRef = useRef(false);
   const lastProgressRef = useRef(Date.now());
@@ -97,6 +115,7 @@ export const ImageProcessingQueueManager: React.FC<ImageProcessingQueueManagerPr
           file,
           name: file.name,
           size: file.size,
+          thumbnailUrl: file.type?.startsWith('image/') ? URL.createObjectURL(file) : undefined,
           status: 'pending' as ImageItemStatus,
         };
       });
@@ -107,6 +126,24 @@ export const ImageProcessingQueueManager: React.FC<ImageProcessingQueueManagerPr
       return nextItems;
     });
   }, [files, isProcessing, hasFinished]);
+
+  const handleOpenItemEditor = async (item: ImageQueueItem) => {
+    if (isProcessing) return;
+    try {
+      const rawUrl = await readFileAsWorkingDataUrl(item.file, 1200);
+      setEditingQueueItem({ item, rawUrl });
+    } catch {
+      if (item.thumbnailUrl) {
+        setEditingQueueItem({ item, rawUrl: item.thumbnailUrl });
+      }
+    }
+  };
+
+  const handleRemoveQueueItem = (item: ImageQueueItem) => {
+    if (isProcessing) return;
+    setItems((prev) => prev.filter((it) => it.id !== item.id));
+    onRemoveFile?.(item.file);
+  };
 
   // Elapsed time & Watchdog timer
   useEffect(() => {
@@ -989,8 +1026,31 @@ export const ImageProcessingQueueManager: React.FC<ImageProcessingQueueManagerPr
                     </div>
                   </div>
 
-                  {/* Right: Badge & Time Taken */}
-                  <div className="flex flex-col items-end gap-1 shrink-0">
+                  {/* Right: Actions + Badge & Time Taken */}
+                  <div className="flex items-center gap-2 shrink-0">
+                    {!isProcessing && item.status !== 'processing' && (
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenItemEditor(item)}
+                          className="flex items-center gap-1 px-2 py-1 bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 rounded-lg text-[10px] font-bold cursor-pointer transition-colors"
+                          title="قص وتعديل ومسح يدوي قبل الإضافة"
+                        >
+                          <Crop size={12} />
+                          <span className="hidden sm:inline">قص وتعديل</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveQueueItem(item)}
+                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                          title="إزالة الصورة من القائمة"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="flex flex-col items-end gap-1 shrink-0">
                     {/* Status Badge */}
                     {item.status === 'success' && (
                       <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold text-[10px]">
@@ -1028,6 +1088,7 @@ export const ImageProcessingQueueManager: React.FC<ImageProcessingQueueManagerPr
                         {item.durationSeconds} ثانية
                       </span>
                     )}
+                    </div>
                   </div>
                 </div>
               );
@@ -1036,6 +1097,73 @@ export const ImageProcessingQueueManager: React.FC<ImageProcessingQueueManagerPr
           <div ref={listEndRef} />
         </div>
       </div>
+
+      {/* Pro Image Studio Modal for Queued Photos */}
+      {editingQueueItem && (() => {
+        const editableItems = items.filter((it) => it.status !== 'processing');
+        const currentEditableIdx = editableItems.findIndex((it) => it.id === editingQueueItem.item.id);
+
+        return (
+          <CropAdjustModal
+            initialImageUrl={editingQueueItem.rawUrl}
+            initialRawUrl={editingQueueItem.rawUrl}
+            title="قص وتعديل الصورة قبل المعالجة"
+            subtitle={editingQueueItem.item.name}
+            queueNav={
+              editableItems.length > 1 && currentEditableIdx >= 0
+                ? {
+                    currentNumber: currentEditableIdx + 1,
+                    total: editableItems.length,
+                    hasPrev: currentEditableIdx > 0,
+                    hasNext: currentEditableIdx < editableItems.length - 1,
+                    onNavigate: async (direction, editedUrl) => {
+                      const oldItem = editingQueueItem.item;
+                      if (editedUrl) {
+                        const newFile = await dataUrlToFile(editedUrl, oldItem.name);
+                        setItems((prev) =>
+                          prev.map((it) =>
+                            it.id === oldItem.id
+                              ? { ...it, file: newFile, size: newFile.size, thumbnailUrl: editedUrl }
+                              : it
+                          )
+                        );
+                        onReplaceFile?.(oldItem.file, newFile);
+                      }
+
+                      const nextIdx = direction === 'prev' ? currentEditableIdx - 1 : currentEditableIdx + 1;
+                      const targetItem = editableItems[nextIdx];
+                      if (!targetItem) return;
+                      try {
+                        const nextRaw = await readFileAsWorkingDataUrl(targetItem.file, 1200);
+                        setEditingQueueItem({ item: targetItem, rawUrl: nextRaw });
+                      } catch {
+                        if (targetItem.thumbnailUrl) {
+                          setEditingQueueItem({ item: targetItem, rawUrl: targetItem.thumbnailUrl });
+                        }
+                      }
+                    },
+                  }
+                : undefined
+            }
+            onClose={() => setEditingQueueItem(null)}
+            onSaveImageUrl={async (editedUrl) => {
+              const oldItem = editingQueueItem.item;
+              const newFile = await dataUrlToFile(editedUrl, oldItem.name);
+              setItems((prev) =>
+                prev.map((it) =>
+                  it.id === oldItem.id
+                    ? { ...it, file: newFile, size: newFile.size, thumbnailUrl: editedUrl }
+                    : it
+                )
+              );
+              onReplaceFile?.(oldItem.file, newFile);
+            }}
+            onRemoveImage={() => {
+              handleRemoveQueueItem(editingQueueItem.item);
+            }}
+          />
+        );
+      })()}
     </div>
   );
 };

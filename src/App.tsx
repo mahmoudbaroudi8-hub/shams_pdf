@@ -284,20 +284,22 @@ export default function App() {
       {/* Main Container with Desktop Sidebar */}
       <div className="flex-1 flex w-full">
         {/* Desktop Sidebar (Persistent on right >= 1024px, collapsible) */}
-        <DesktopSidebar
-          activeTab={activeTab}
-          onTabChange={(tab) => setActiveTab(tab)}
-          totalProductsCount={products.length}
-          pricedProductsCount={pricedProductsCount}
-          onOpenSettings={() => setIsSettingsOpen(true)}
-          isCollapsed={isDesktopCollapsed}
-          onToggleCollapse={() => setIsDesktopCollapsed((prev) => !prev)}
-          isDarkMode={isDarkMode}
-          onToggleDarkMode={toggleDarkMode}
-        />
+        <div className="print:hidden">
+          <DesktopSidebar
+            activeTab={activeTab}
+            onTabChange={(tab) => setActiveTab(tab)}
+            totalProductsCount={products.length}
+            pricedProductsCount={pricedProductsCount}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+            isCollapsed={isDesktopCollapsed}
+            onToggleCollapse={() => setIsDesktopCollapsed((prev) => !prev)}
+            isDarkMode={isDarkMode}
+            onToggleDarkMode={toggleDarkMode}
+          />
+        </div>
 
-        {/* Main Content Area with pb-28 on mobile (< 640px) so bottom bar doesn't overlay */}
-        <main className="flex-1 min-w-0 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 pb-28 sm:pb-8">
+        {/* Main Content Area with pb-24 on mobile (< 640px) so bottom bar doesn't overlay */}
+        <main className="flex-1 min-w-0 w-full max-w-[1680px] mx-auto px-3 py-3 sm:px-5 sm:py-4 lg:px-6 lg:py-5 pb-24 sm:pb-6 print:p-0 print:max-w-none print:m-0">
         {isLoadingDB ? (
           <div className="p-16 flex flex-col items-center justify-center text-slate-400">
             <div className="w-10 h-10 border-3 border-sky-600 border-t-transparent rounded-full animate-spin mb-4" />
@@ -328,7 +330,7 @@ export default function App() {
               !dismissBackupReminder &&
               (!settings.last_backup_date ||
                 Date.now() - settings.last_backup_date > 7 * 86400 * 1000) && (
-                <div className="mb-6 p-4 bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-300 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+                <div className="mb-6 p-4 bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-300 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs print:hidden">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0">
                       <Database size={20} />

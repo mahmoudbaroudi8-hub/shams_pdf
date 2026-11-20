@@ -1,8 +1,9 @@
 import React, { useState, useRef } from 'react';
 import { Product, ProductCategory, ALL_CATEGORIES } from '../types';
-import { compressUploadedImage } from '../utils/imageCropper';
+import { compressUploadedImage, readFileAsWorkingDataUrl } from '../utils/imageCropper';
 import { saveProduct } from '../utils/db';
-import { Plus, X, Upload, Check, ImageIcon } from 'lucide-react';
+import { CropAdjustModal } from './CropAdjustModal';
+import { Plus, X, Upload, Check, ImageIcon, Crop, Trash2 } from 'lucide-react';
 import { useUiFeedback } from './UiFeedbackProvider';
 
 interface ManualProductModalProps {
@@ -26,22 +27,29 @@ export const ManualProductModal: React.FC<ManualProductModalProps> = ({
   const [wholesalePrice, setWholesalePrice] = useState<number>(0);
   const [sellingPrice, setSellingPrice] = useState<number>(0);
   const [imageUrl, setImageUrl] = useState<string>('');
+  const [rawImageUrl, setRawImageUrl] = useState<string>('');
+  const [isImageEditorOpen, setIsImageEditorOpen] = useState(false);
   const [isCompressing, setIsCompressing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleImageSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
 
     try {
       setIsCompressing(true);
-      const compressed = await compressUploadedImage(file);
+      const [workingUrl, compressed] = await Promise.all([
+        readFileAsWorkingDataUrl(file, 1200),
+        compressUploadedImage(file, 520),
+      ]);
+      setRawImageUrl(workingUrl);
       setImageUrl(compressed);
+      setIsImageEditorOpen(true);
     } catch {
       toast.error('تعذر تحميل الصورة.');
     } finally {
       setIsCompressing(false);
-      e.target.value = '';
     }
   };
 
@@ -64,10 +72,10 @@ export const ManualProductModal: React.FC<ManualProductModalProps> = ({
       specification: specification.trim(),
       wholesale_price: wholesalePrice,
       selling_price: sellingPrice,
-      manual_price_set: true,
+      manual_price_set: sellingPrice > 0,
       included_in_catalog: isComplete,
       image_url: imageUrl || undefined,
-      original_image_url: imageUrl || undefined,
+      original_image_url: rawImageUrl || imageUrl || undefined,
       created_at: Date.now(),
       updated_at: Date.now(),
     };
@@ -79,7 +87,7 @@ export const ManualProductModal: React.FC<ManualProductModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-      <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-150">
+      <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-150 max-h-[92vh] overflow-y-auto">
         <div className="flex items-center justify-between pb-4 border-b border-slate-100">
           <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
             <Plus size={18} className="text-sky-600" />
@@ -94,18 +102,22 @@ export const ManualProductModal: React.FC<ManualProductModalProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="py-4 space-y-4 text-xs">
-          {/* Photo Upload */}
+          {/* Photo Upload + Pro Editor */}
           <div>
             <label className="block font-bold text-slate-700 mb-1.5">صورة المنتج:</label>
-            <div className="flex items-center gap-3">
-              <div className="w-16 h-16 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden shrink-0">
+            <div className="flex flex-wrap items-center gap-3">
+              <div
+                onClick={() => (imageUrl ? setIsImageEditorOpen(true) : fileInputRef.current?.click())}
+                className="w-16 h-16 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden shrink-0 cursor-pointer hover:border-sky-500 transition-colors"
+                title={imageUrl ? 'اضغط لتعديل وقص الصورة' : 'اضغط لرفع صورة'}
+              >
                 {imageUrl ? (
                   <img src={imageUrl} alt="Preview" className="w-full h-full object-contain p-1" />
                 ) : (
                   <ImageIcon size={20} className="text-slate-300" />
                 )}
               </div>
-              <div>
+              <div className="flex flex-wrap items-center gap-2">
                 <input
                   type="file"
                   ref={fileInputRef}
@@ -120,8 +132,32 @@ export const ManualProductModal: React.FC<ManualProductModalProps> = ({
                   className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg cursor-pointer flex items-center gap-1.5"
                 >
                   <Upload size={13} />
-                  {isCompressing ? 'جاري الضغط...' : imageUrl ? 'تغيير الصورة' : 'رفع صورة للمنتج'}
+                  {isCompressing ? 'جاري التحميل...' : imageUrl ? 'تغيير الصورة' : 'رفع صورة للمنتج'}
                 </button>
+
+                {imageUrl && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setIsImageEditorOpen(true)}
+                      className="px-3 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 font-bold rounded-lg cursor-pointer flex items-center gap-1.5"
+                    >
+                      <Crop size={13} />
+                      قص وتعديل وإزالة
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setImageUrl('');
+                        setRawImageUrl('');
+                      }}
+                      className="px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-bold rounded-lg cursor-pointer flex items-center gap-1"
+                    >
+                      <Trash2 size={13} />
+                      إزالة
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -201,6 +237,7 @@ export const ManualProductModal: React.FC<ManualProductModalProps> = ({
               <input
                 type="number"
                 min="0"
+                step="any"
                 value={wholesalePrice || ''}
                 onChange={(e) => setWholesalePrice(Number(e.target.value) || 0)}
                 placeholder="0"
@@ -215,6 +252,7 @@ export const ManualProductModal: React.FC<ManualProductModalProps> = ({
               <input
                 type="number"
                 min="0"
+                step="any"
                 value={sellingPrice || ''}
                 onChange={(e) => setSellingPrice(Number(e.target.value) || 0)}
                 placeholder="0"
@@ -245,6 +283,24 @@ export const ManualProductModal: React.FC<ManualProductModalProps> = ({
           </div>
         </form>
       </div>
+
+      {isImageEditorOpen && (
+        <CropAdjustModal
+          initialImageUrl={imageUrl}
+          initialRawUrl={rawImageUrl || imageUrl}
+          title="تعديل وقص صورة المنتج الجديد"
+          subtitle={name || 'منتج يدوي'}
+          onClose={() => setIsImageEditorOpen(false)}
+          onSaveImageUrl={(editedUrl, sourceUrl) => {
+            setImageUrl(editedUrl);
+            setRawImageUrl(sourceUrl);
+          }}
+          onRemoveImage={() => {
+            setImageUrl('');
+            setRawImageUrl('');
+          }}
+        />
+      )}
     </div>
   );
 };

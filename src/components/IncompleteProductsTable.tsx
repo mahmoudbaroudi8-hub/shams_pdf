@@ -459,8 +459,11 @@ export const IncompleteProductsTable: React.FC<IncompleteProductsTableProps> = (
         <CropAdjustModal
           product={cropModalProduct}
           onClose={() => setCropModalProduct(null)}
-          onSave={(updated) => {
-            onProductsUpdated(products.map((p) => (p.id === updated.id ? updated : p)));
+          onSave={async (updated) => {
+            await saveProduct(updated);
+            const nextProducts = productsRef.current.map((p) => (p.id === updated.id ? updated : p));
+            productsRef.current = nextProducts;
+            onProductsUpdated(nextProducts);
           }}
         />
       )}

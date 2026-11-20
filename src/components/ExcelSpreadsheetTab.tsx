@@ -4,11 +4,16 @@ import {
   CatalogSettings,
   DEFAULT_CATEGORIES,
   ALL_CATEGORIES,
+  PricingMethodType,
+  PricingTier,
+  StandardMapTier,
+  DEFAULT_STANDARD_MAP,
 } from '../types';
 import {
   saveProduct,
   saveProductsBatch,
   deleteProduct,
+  saveSettings,
   createAutoBackupSnapshot,
 } from '../utils/db';
 import {
@@ -18,7 +23,8 @@ import {
   parsePastedSpreadsheetText,
   parseNumericPrice,
 } from '../utils/excelHelper';
-import { compressUploadedImage } from '../utils/imageCropper';
+import { compressUploadedImage, readFileAsWorkingDataUrl } from '../utils/imageCropper';
+import { CropAdjustModal } from './CropAdjustModal';
 import { useUiFeedback } from './UiFeedbackProvider';
 import {
   FileSpreadsheet,
@@ -37,12 +43,23 @@ import {
   FileDown,
   Filter,
   RefreshCw,
+  Crop,
+  SlidersHorizontal,
+  ChevronDown,
+  ChevronUp,
+  RotateCcw,
+  Sparkles,
+  Percent,
+  TrendingUp,
+  Layers,
+  Eye,
 } from 'lucide-react';
 
 interface ExcelSpreadsheetTabProps {
   products: Product[];
   settings: CatalogSettings;
   onProductsUpdated: (newProducts: Product[]) => void;
+  onSettingsUpdated?: (newSettings: CatalogSettings) => void;
   onNavigateToPricing: () => void;
 }
 
@@ -201,6 +218,7 @@ export const ExcelSpreadsheetTab: React.FC<ExcelSpreadsheetTabProps> = ({
   products,
   settings,
   onProductsUpdated,
+  onSettingsUpdated,
   onNavigateToPricing,
 }) => {
   const { toast, confirm } = useUiFeedback();
@@ -230,8 +248,58 @@ export const ExcelSpreadsheetTab: React.FC<ExcelSpreadsheetTabProps> = ({
   const [onlyMissingPriceOrName, setOnlyMissingPriceOrName] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // Quick markup percentage control
+  // Quick Selling Pricing Controls (All 5 Stage-2 Methods in Compact Dropdown + Details)
+  const [quickPricingMethod, setQuickPricingMethod] = useState<PricingMethodType>(
+    settings.global_pricing_rule?.method || 'percent_markup'
+  );
   const [quickMarkupPercent, setQuickMarkupPercent] = useState<string>('20');
+  const [quickFixedAdd, setQuickFixedAdd] = useState<string>('30');
+  const [quickProfitMargin, setQuickProfitMargin] = useState<string>('20');
+  const [quickTiers, setQuickTiers] = useState<PricingTier[]>([
+    { id: 'qt_1', from: 1, to: 50, increase_type: 'fixed', value: 15 },
+    { id: 'qt_2', from: 51, to: 150, increase_type: 'fixed', value: 25 },
+    { id: 'qt_3', from: 151, to: 300, increase_type: 'fixed', value: 40 },
+    { id: 'qt_4', from: 301, to: 2000, increase_type: 'percent', value: 20 },
+  ]);
+  const [quickStandardMap, setQuickStandardMap] = useState<StandardMapTier[]>(() =>
+    settings.current_standard_map && settings.current_standard_map.length > 0
+      ? settings.current_standard_map
+      : DEFAULT_STANDARD_MAP
+  );
+  const [quickFallbackPercent, setQuickFallbackPercent] = useState<number>(
+    settings.standard_map_fallback_percent || 10
+  );
+  const [quickAllowFractions, setQuickAllowFractions] = useState<boolean>(
+    settings.allow_price_fractions ?? true
+  );
+  const [quickRounding, setQuickRounding] = useState<0 | 1 | 5 | 10>(() => {
+    const saved = settings.global_pricing_rule?.rounding;
+    if (saved === 0 || saved === 1 || saved === 5 || saved === 10) return saved;
+    return (settings.allow_price_fractions ?? true) ? 0 : 5;
+  });
+  const [quickOverrideExisting, setQuickOverrideExisting] = useState<boolean>(false);
+  const [showQuickPricingDetails, setShowQuickPricingDetails] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (settings.allow_price_fractions !== undefined) {
+      setQuickAllowFractions(settings.allow_price_fractions);
+    }
+    const savedRounding = settings.global_pricing_rule?.rounding;
+    if (savedRounding === 0 || savedRounding === 1 || savedRounding === 5 || savedRounding === 10) {
+      setQuickRounding(savedRounding);
+    }
+    if (settings.current_standard_map && settings.current_standard_map.length > 0) {
+      setQuickStandardMap(settings.current_standard_map);
+    }
+    if (settings.standard_map_fallback_percent !== undefined) {
+      setQuickFallbackPercent(settings.standard_map_fallback_percent);
+    }
+  }, [
+    settings.allow_price_fractions,
+    settings.global_pricing_rule?.rounding,
+    settings.current_standard_map,
+    settings.standard_map_fallback_percent,
+  ]);
 
   // Paste from Excel dialog & import loading state
   const [showPasteModal, setShowPasteModal] = useState(false);
@@ -253,10 +321,14 @@ export const ExcelSpreadsheetTab: React.FC<ExcelSpreadsheetTabProps> = ({
     }
   };
 
-  // Hidden inputs
+  // Hidden inputs & Image Studio Modal state
   const excelFileInputRef = useRef<HTMLInputElement>(null);
   const rowImageInputRef = useRef<HTMLInputElement>(null);
   const pendingImageRowIdRef = useRef<string | null>(null);
+  const [imageStudioTarget, setImageStudioTarget] = useState<{
+    product: Product;
+    initialRawUrl?: string;
+  } | null>(null);
 
   // Filtered rows displayed in sheet
   const filteredProducts = useMemo(() => {
@@ -519,39 +591,165 @@ export const ExcelSpreadsheetTab: React.FC<ExcelSpreadsheetTabProps> = ({
     toast.success(`تم حذف ${count} صف بنجاح.`);
   };
 
-  // Apply quick percentage markup to selected rows (or all visible rows with wholesale > 0 and selling === 0 if none selected)
-  const handleApplyQuickMarkup = async () => {
-    const pct = Number(quickMarkupPercent);
-    if (!Number.isFinite(pct) || pct <= 0) {
-      toast.warning('أدخل نسبة زيادة صحيحة أكبر من الصفر.');
-      return;
+  // Calculate Selling Price using any of the 5 Stage-2 pricing methods
+  const calculateQuickSellingPrice = (wholesale: number): number => {
+    if (wholesale <= 0) return 0;
+    let price = wholesale;
+
+    if (quickPricingMethod === 'standard_map') {
+      if (wholesale > 4000) {
+        price = wholesale * (1 + quickFallbackPercent / 100);
+      } else {
+        const matched = quickStandardMap.find((t) =>
+          t.from === 0 ? wholesale >= 0 && wholesale <= t.to : wholesale > t.from && wholesale <= t.to
+        );
+        price = matched
+          ? wholesale + matched.increase
+          : wholesale * (1 + quickFallbackPercent / 100);
+      }
+    } else if (quickPricingMethod === 'percent_markup') {
+      const pct = Math.max(0, Number(quickMarkupPercent) || 0);
+      price = wholesale * (1 + pct / 100);
+    } else if (quickPricingMethod === 'fixed_add') {
+      const addAmt = Math.max(0, Number(quickFixedAdd) || 0);
+      price = wholesale + addAmt;
+    } else if (quickPricingMethod === 'profit_margin') {
+      const marginPct = Number(quickProfitMargin) || 0;
+      const fraction = Math.min(0.95, Math.max(0.01, marginPct / 100));
+      price = wholesale / (1 - fraction);
+    } else if (quickPricingMethod === 'tiers') {
+      const matchedTier = quickTiers.find((t) => wholesale >= t.from && wholesale <= t.to);
+      if (matchedTier) {
+        price =
+          matchedTier.increase_type === 'percent'
+            ? wholesale * (1 + matchedTier.value / 100)
+            : wholesale + matchedTier.value;
+      } else {
+        price = wholesale * 1.2;
+      }
     }
 
-    const targetList =
+    if (quickRounding === 0) {
+      price = quickAllowFractions ? Math.round(price * 100) / 100 : Math.round(price);
+    } else if (quickRounding === 1) {
+      price = Math.round(price);
+    } else {
+      price = Math.round(price / quickRounding) * quickRounding;
+    }
+
+    return Math.max(wholesale, price);
+  };
+
+  // Determine target rows for quick pricing
+  const quickTargetProducts = useMemo(() => {
+    const base =
       selectedIds.size > 0
         ? filteredProducts.filter((p) => selectedIds.has(p.id))
-        : filteredProducts.filter((p) => (p.wholesale_price || 0) > 0 && (p.selling_price || 0) <= 0);
+        : filteredProducts;
+    return base.filter((p) => {
+      if ((p.wholesale_price || 0) <= 0) return false;
+      if (selectedIds.size > 0) return true;
+      return quickOverrideExisting || (p.selling_price || 0) <= 0;
+    });
+  }, [filteredProducts, selectedIds, quickOverrideExisting]);
 
-    if (targetList.length === 0) {
+  const quickPreviewSamples = useMemo(() => {
+    return quickTargetProducts.slice(0, 3).map((p) => {
+      const wholesale = p.wholesale_price || 0;
+      const newSelling = calculateQuickSellingPrice(wholesale);
+      const profit = Math.round((newSelling - wholesale) * 100) / 100;
+      return {
+        id: p.id,
+        name: p.name || p.code || 'صنف بدون اسم',
+        wholesale,
+        newSelling,
+        profit,
+      };
+    });
+  }, [
+    quickTargetProducts,
+    quickPricingMethod,
+    quickMarkupPercent,
+    quickFixedAdd,
+    quickProfitMargin,
+    quickTiers,
+    quickStandardMap,
+    quickFallbackPercent,
+    quickRounding,
+    quickAllowFractions,
+  ]);
+
+  const canUndoQuickPricing = useMemo(
+    () => products.some((p) => p.previous_selling_price_snapshot !== undefined),
+    [products]
+  );
+
+  const handleUndoQuickPricing = async () => {
+    const toRestore: Product[] = [];
+    const nextList = productsRef.current.map((p) => {
+      if (p.previous_selling_price_snapshot !== undefined) {
+        const prevSell = p.previous_selling_price_snapshot;
+        const { previous_selling_price_snapshot: _drop, ...rest } = p;
+        const restored: Product = {
+          ...rest,
+          selling_price: prevSell,
+          included_in_catalog: Boolean(p.name?.trim() && prevSell > 0),
+          updated_at: Date.now(),
+        };
+        toRestore.push(restored);
+        return restored;
+      }
+      return p;
+    });
+    if (toRestore.length === 0) return;
+    productsRef.current = nextList;
+    onProductsUpdated(nextList);
+    await saveProductsBatch(toRestore);
+    toast.success(`تم التراجع واسترجاع الأسعار السابقة لعدد ${toRestore.length} صنف.`);
+  };
+
+  // Apply quick selling pricing using selected Stage-2 method
+  const handleApplyQuickMarkup = async () => {
+    if (quickPricingMethod === 'percent_markup') {
+      const pct = Number(quickMarkupPercent);
+      if (!Number.isFinite(pct) || pct <= 0) {
+        toast.warning('أدخل نسبة زيادة صحيحة أكبر من الصفر.');
+        return;
+      }
+    } else if (quickPricingMethod === 'fixed_add') {
+      const amt = Number(quickFixedAdd);
+      if (!Number.isFinite(amt) || amt <= 0) {
+        toast.warning('أدخل مبلغ زيادة ثابتاً أكبر من الصفر.');
+        return;
+      }
+    } else if (quickPricingMethod === 'profit_margin') {
+      const margin = Number(quickProfitMargin);
+      if (!Number.isFinite(margin) || margin <= 0 || margin >= 95) {
+        toast.warning('أدخل نسبة هامش ربح بين 1% و 94%.');
+        return;
+      }
+    }
+
+    if (quickTargetProducts.length === 0) {
       toast.info(
         selectedIds.size > 0
           ? 'الصفوف المحددة لا تحتوي على أسعار جملة صالحة.'
-          : 'حدد صفوفاً لتسعيرها، أو تأكد من وجود منتجات بسعر جملة وبدون سعر بيع.'
+          : 'لا توجد صفوف بسعر جملة وبدون سعر بيع (يمكنك تحديد صفوف أو تفعيل استبدال المسعر من التفاصيل).'
       );
       return;
     }
 
-    const targetIdSet = new Set(targetList.map((p) => p.id));
+    const targetIdSet = new Set(quickTargetProducts.map((p) => p.id));
     const modified: Product[] = [];
     const now = Date.now();
 
     const nextList = productsRef.current.map((p) => {
       if (!targetIdSet.has(p.id) || (p.wholesale_price || 0) <= 0) return p;
-      const rawSelling = p.wholesale_price * (1 + pct / 100);
-      const rounded = Math.max(1, Math.ceil(rawSelling / 5) * 5);
+      const calculatedSelling = calculateQuickSellingPrice(p.wholesale_price);
       const updated: Product = {
         ...p,
-        selling_price: rounded,
+        previous_selling_price_snapshot: p.selling_price || 0,
+        selling_price: calculatedSelling,
         included_in_catalog: p.name.trim() ? true : p.included_in_catalog,
         updated_at: now,
       };
@@ -560,14 +758,42 @@ export const ExcelSpreadsheetTab: React.FC<ExcelSpreadsheetTabProps> = ({
     });
 
     if (modified.length === 0) {
-      toast.warning('لا توجد صفوف بسعر جملة أكبر من 0 لتطبيق الزيادة عليها.');
+      toast.warning('لا توجد صفوف بسعر جملة أكبر من 0 لتطبيق التسعير عليها.');
       return;
     }
 
     productsRef.current = nextList;
     onProductsUpdated(nextList);
     await saveProductsBatch(modified);
-    toast.success(`تم تسعير ${modified.length} صنف بنسبة +${pct}% وتقريب السعر لأقرب 5 ج.م.`);
+
+    // Sync pricing rule, fractions & standard map back to shared settings
+    const nextSettings: CatalogSettings = {
+      ...settings,
+      allow_price_fractions: quickAllowFractions,
+      global_pricing_rule: {
+        ...(settings.global_pricing_rule || {
+          method: quickPricingMethod,
+          value: Number(quickMarkupPercent) || 20,
+          rounding: quickRounding,
+        }),
+        method: quickPricingMethod,
+        rounding: quickRounding,
+      },
+      current_standard_map: quickStandardMap,
+      standard_map_fallback_percent: quickFallbackPercent,
+    };
+    await saveSettings(nextSettings);
+    onSettingsUpdated?.(nextSettings);
+
+    const methodLabels: Record<PricingMethodType, string> = {
+      standard_map: 'الخريطة المعيارية',
+      percent_markup: `نسبة +${quickMarkupPercent}%`,
+      fixed_add: `زيادة ثابتة +${quickFixedAdd} ج.م`,
+      profit_margin: `هامش ربح ${quickProfitMargin}%`,
+      tiers: 'الشرايح المخصصة',
+    };
+    toast.success(`تم تسعير ${modified.length} صنف بطريقة (${methodLabels[quickPricingMethod]}) بنجاح.`);
+    setSaveStatusText(`تسعير ${modified.length} صنف (${methodLabels[quickPricingMethod]})`);
   };
 
   // Export internal Excel files
@@ -733,10 +959,38 @@ export const ExcelSpreadsheetTab: React.FC<ExcelSpreadsheetTabProps> = ({
     setSaveStatusText(`استيراد مكتمل (+${newProducts.length} / تحديث ${updatedProducts.length})`);
   };
 
-  // Upload photo for specific row
+  // Upload or edit photo for specific row
   const handleTriggerRowImageUpload = (productId: string) => {
     pendingImageRowIdRef.current = productId;
     rowImageInputRef.current?.click();
+  };
+
+  const handleOpenRowImageCell = (product: Product) => {
+    if (product.image_url) {
+      setImageStudioTarget({
+        product,
+        initialRawUrl: product.original_image_url || product.image_url,
+      });
+    } else {
+      handleTriggerRowImageUpload(product.id);
+    }
+  };
+
+  const handleRemoveRowImage = async (product: Product) => {
+    const updated: Product = {
+      ...product,
+      image_url: undefined,
+      original_image_url: undefined,
+      raw_bounding_box: undefined,
+      box_2d: undefined,
+      needs_crop_adjustment: false,
+      updated_at: Date.now(),
+    };
+    const nextList = productsRef.current.map((p) => (p.id === product.id ? updated : p));
+    productsRef.current = nextList;
+    onProductsUpdated(nextList);
+    await saveProduct(updated);
+    toast.success('تمت إزالة صورة الصنف.');
   };
 
   const handleRowImageSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -747,7 +1001,10 @@ export const ExcelSpreadsheetTab: React.FC<ExcelSpreadsheetTabProps> = ({
     if (!file || !targetId) return;
 
     try {
-      const compressed = await compressUploadedImage(file, 400);
+      const [hiResRaw, compressed] = await Promise.all([
+        readFileAsWorkingDataUrl(file, 1200),
+        compressUploadedImage(file, 480),
+      ]);
       const currentList = productsRef.current;
       const target = currentList.find((p) => p.id === targetId);
       if (!target) return;
@@ -755,6 +1012,7 @@ export const ExcelSpreadsheetTab: React.FC<ExcelSpreadsheetTabProps> = ({
       const updated: Product = {
         ...target,
         image_url: compressed,
+        original_image_url: hiResRaw,
         needs_crop_adjustment: false,
         updated_at: Date.now(),
       };
@@ -762,9 +1020,14 @@ export const ExcelSpreadsheetTab: React.FC<ExcelSpreadsheetTabProps> = ({
       productsRef.current = nextList;
       onProductsUpdated(nextList);
       await saveProduct(updated);
-      toast.success('تم رفع صورة الصنف بنجاح.');
+
+      // Open pro studio right after upload so user can crop, rotate, erase, or adjust immediately
+      setImageStudioTarget({
+        product: updated,
+        initialRawUrl: hiResRaw,
+      });
     } catch (err: any) {
-      toast.error(err?.message || 'فشل ضغط ورفع الصورة.');
+      toast.error(err?.message || 'فشل تحميل الصورة.');
     }
   };
 
@@ -857,45 +1120,45 @@ export const ExcelSpreadsheetTab: React.FC<ExcelSpreadsheetTabProps> = ({
         </div>
       </div>
 
-      {/* Excel Ribbon Toolbar Strips */}
-      <div className="bg-[#f3f6f4] border-b border-slate-200 px-3 py-2.5 flex flex-wrap items-stretch gap-2">
+      {/* Excel Ribbon Toolbar Strips (Single Sleek Horizontal Row) */}
+      <div className="bg-[#f3f6f4] border-b border-slate-200 px-2.5 py-2 flex flex-nowrap items-stretch gap-1.5 overflow-x-auto no-scrollbar">
         {/* Group 1: Rows */}
-        <div className="flex flex-col justify-between bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 gap-1.5">
-          <div className="flex flex-wrap items-center gap-1.5">
+        <div className="shrink-0 flex flex-col justify-between bg-white border border-slate-200 rounded-xl px-2 py-1.5 gap-1">
+          <div className="flex flex-nowrap items-center gap-1 whitespace-nowrap">
             <button
               type="button"
               onClick={() => handleAddBlankRows(1)}
-              className="flex items-center gap-1 px-2.5 py-1.5 bg-[#107C41] hover:bg-[#0c6333] text-white font-bold rounded-lg text-xs transition-colors cursor-pointer"
+              className="flex items-center gap-1 px-2 py-1 bg-[#107C41] hover:bg-[#0c6333] text-white font-bold rounded-lg text-[11px] transition-colors cursor-pointer whitespace-nowrap"
             >
-              <Plus size={14} />
+              <Plus size={13} />
               صف جديد
             </button>
             <button
               type="button"
               onClick={() => handleAddBlankRows(5)}
-              className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold rounded-lg text-xs transition-colors cursor-pointer"
+              className="flex items-center gap-1 px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold rounded-lg text-[11px] transition-colors cursor-pointer whitespace-nowrap"
             >
-              <Plus size={13} />
+              <Plus size={12} />
               5 صفوف
             </button>
             <button
               type="button"
               onClick={handleDuplicateSelected}
               disabled={selectedIds.size === 0}
-              className="flex items-center gap-1 px-2 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 font-bold rounded-lg text-xs transition-colors cursor-pointer disabled:opacity-40"
+              className="flex items-center gap-1 px-2 py-1 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 font-bold rounded-lg text-[11px] transition-colors cursor-pointer disabled:opacity-40 whitespace-nowrap"
               title="تكرار الصفوف المحددة"
             >
-              <CopyPlus size={13} />
+              <CopyPlus size={12} />
               تكرار
             </button>
             <button
               type="button"
               onClick={handleDeleteSelected}
               disabled={selectedIds.size === 0}
-              className="flex items-center gap-1 px-2 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-bold rounded-lg text-xs transition-colors cursor-pointer disabled:opacity-40"
+              className="flex items-center gap-1 px-2 py-1 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-bold rounded-lg text-[11px] transition-colors cursor-pointer disabled:opacity-40 whitespace-nowrap"
               title="حذف الصفوف المحددة"
             >
-              <Trash2 size={13} />
+              <Trash2 size={12} />
               حذف ({selectedIds.size})
             </button>
           </div>
@@ -903,97 +1166,623 @@ export const ExcelSpreadsheetTab: React.FC<ExcelSpreadsheetTabProps> = ({
         </div>
 
         {/* Group 2: Import / Paste */}
-        <div className="flex flex-col justify-between bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 gap-1.5">
-          <div className="flex flex-wrap items-center gap-1.5">
+        <div className="shrink-0 flex flex-col justify-between bg-white border border-slate-200 rounded-xl px-2 py-1.5 gap-1">
+          <div className="flex flex-nowrap items-center gap-1 whitespace-nowrap">
             <button
               type="button"
               onClick={() => excelFileInputRef.current?.click()}
               disabled={isImporting}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-lg text-xs transition-colors cursor-pointer disabled:opacity-60"
+              className="flex items-center gap-1 px-2 py-1 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-lg text-[11px] transition-colors cursor-pointer disabled:opacity-60 whitespace-nowrap"
+              title="استيراد ملفات Excel أو CSV"
             >
-              {isImporting ? <RefreshCw size={13} className="animate-spin" /> : <Upload size={13} />}
-              {isImporting ? 'جاري الاستيراد...' : 'استيراد Excel / CSV'}
+              {isImporting ? <RefreshCw size={12} className="animate-spin" /> : <Upload size={12} />}
+              {isImporting ? 'استيراد...' : 'استيراد Excel'}
             </button>
             <button
               type="button"
               onClick={() => setShowPasteModal((v) => !v)}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 border font-bold rounded-lg text-xs transition-colors cursor-pointer ${
+              className={`flex items-center gap-1 px-2 py-1 border font-bold rounded-lg text-[11px] transition-colors cursor-pointer whitespace-nowrap ${
                 showPasteModal
                   ? 'bg-amber-100 border-amber-300 text-amber-900'
                   : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
               }`}
+              title="لصق صفوف منسوخة من Excel"
             >
-              <ClipboardPaste size={13} />
-              لصق من إكسيل
+              <ClipboardPaste size={12} />
+              لصق
             </button>
             <button
               type="button"
               onClick={() => downloadExcelTemplate('قالب_إكسيل_المنتجات.xlsx', categories)}
-              className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 font-bold rounded-lg text-xs transition-colors cursor-pointer"
+              className="flex items-center gap-1 px-2 py-1 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 font-bold rounded-lg text-[11px] transition-colors cursor-pointer whitespace-nowrap"
               title="تحميل نموذج إكسيل فارغ جاهز للتعبئة"
             >
-              <FileDown size={13} />
-              قالب فارغ
+              <FileDown size={12} />
+              قالب
             </button>
           </div>
           <span className="text-[10px] text-slate-400 text-center font-semibold">استيراد ولصق</span>
         </div>
 
         {/* Group 3: Internal Excel Export */}
-        <div className="flex flex-col justify-between bg-white border border-emerald-200 rounded-xl px-2.5 py-1.5 gap-1.5">
-          <div className="flex flex-wrap items-center gap-1.5">
+        <div className="shrink-0 flex flex-col justify-between bg-white border border-emerald-200 rounded-xl px-2 py-1.5 gap-1">
+          <div className="flex flex-nowrap items-center gap-1 whitespace-nowrap">
             <button
               type="button"
               onClick={handleExportAllExcel}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg text-xs transition-colors cursor-pointer shadow-2xs"
+              className="flex items-center gap-1 px-2 py-1 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg text-[11px] transition-colors cursor-pointer shadow-2xs whitespace-nowrap"
+              title="تصدير جميع المنتجات إلى ملف .xlsx"
             >
-              <Download size={13} />
-              تصدير الكل (.xlsx)
+              <Download size={12} />
+              تصدير الكل
             </button>
             <button
               type="button"
               onClick={handleExportFilteredOrSelected}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold rounded-lg text-xs transition-colors cursor-pointer"
+              className="flex items-center gap-1 px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold rounded-lg text-[11px] transition-colors cursor-pointer whitespace-nowrap"
             >
-              <Download size={13} />
+              <Download size={12} />
               {selectedIds.size > 0
-                ? `تصدير المحدد (${selectedIds.size})`
-                : 'تصدير المعروض'}
+                ? `المحدد (${selectedIds.size})`
+                : 'المعروض'}
             </button>
           </div>
           <span className="text-[10px] text-emerald-700 text-center font-bold">تصدير داخلي Excel</span>
         </div>
 
-        {/* Group 4: Quick Percentage Markup */}
-        <div className="flex flex-col justify-between bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 gap-1.5">
-          <div className="flex items-center gap-1.5">
-            <div className="flex items-center border border-slate-300 rounded-lg bg-slate-50 overflow-hidden h-[30px]">
-              <span className="px-2 text-[11px] font-bold text-slate-600 border-l border-slate-200 bg-slate-100 h-full flex items-center">
-                +%
+        {/* Group 4: Compact Quick Selling Pricing (All 5 Stage-2 Methods + Details Drawer) */}
+        <div className="shrink-0 flex flex-col justify-between bg-white border border-indigo-200/80 rounded-xl px-2 py-1.5 gap-1">
+          <div className="flex flex-nowrap items-center gap-1 whitespace-nowrap">
+            {/* Compact Dropdown Menu of all 5 Stage-2 methods */}
+            <select
+              value={quickPricingMethod}
+              onChange={(e) => setQuickPricingMethod(e.target.value as PricingMethodType)}
+              className="h-[28px] max-w-[148px] px-1.5 text-[11px] font-bold bg-slate-50 border border-slate-300 rounded-lg text-slate-800 outline-none focus:border-indigo-500 cursor-pointer"
+              title="اختر طريقة تسعير البيع"
+            >
+              <option value="standard_map">الخريطة المعيارية</option>
+              <option value="percent_markup">(أ) نسبة الجملة (+%)</option>
+              <option value="fixed_add">(ب) مبلغ ثابت (+ج.م)</option>
+              <option value="profit_margin">(ج) هامش البيع (%)</option>
+              <option value="tiers">(د) شرايح مخصصة</option>
+            </select>
+
+            {/* Quick Inline Input / Summary based on active method */}
+            {quickPricingMethod === 'percent_markup' && (
+              <div className="flex items-center border border-slate-300 rounded-lg bg-slate-50 overflow-hidden h-[28px]">
+                <span className="px-1.5 text-[10px] font-bold text-slate-600 border-l border-slate-200 bg-slate-100 h-full flex items-center">
+                  +%
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  max={500}
+                  step="any"
+                  value={quickMarkupPercent}
+                  onChange={(e) => setQuickMarkupPercent(e.target.value)}
+                  dir="ltr"
+                  className="w-11 text-center text-[11px] font-mono font-bold bg-white outline-none h-full"
+                />
+              </div>
+            )}
+
+            {quickPricingMethod === 'fixed_add' && (
+              <div className="flex items-center border border-slate-300 rounded-lg bg-slate-50 overflow-hidden h-[28px]">
+                <span className="px-1.5 text-[10px] font-bold text-slate-600 border-l border-slate-200 bg-slate-100 h-full flex items-center">
+                  +ج
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  step="any"
+                  value={quickFixedAdd}
+                  onChange={(e) => setQuickFixedAdd(e.target.value)}
+                  dir="ltr"
+                  className="w-12 text-center text-[11px] font-mono font-bold bg-white outline-none h-full"
+                />
+              </div>
+            )}
+
+            {quickPricingMethod === 'profit_margin' && (
+              <div className="flex items-center border border-slate-300 rounded-lg bg-slate-50 overflow-hidden h-[28px]">
+                <span className="px-1.5 text-[10px] font-bold text-slate-600 border-l border-slate-200 bg-slate-100 h-full flex items-center">
+                  %
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  max={90}
+                  step="any"
+                  value={quickProfitMargin}
+                  onChange={(e) => setQuickProfitMargin(e.target.value)}
+                  dir="ltr"
+                  className="w-11 text-center text-[11px] font-mono font-bold bg-white outline-none h-full"
+                />
+              </div>
+            )}
+
+            {quickPricingMethod === 'standard_map' && (
+              <span className="h-[28px] px-1.5 inline-flex items-center gap-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-[10px] font-bold whitespace-nowrap">
+                <Sparkles size={11} />
+                {quickStandardMap.length} شريحة
               </span>
-              <input
-                type="number"
-                min={1}
-                max={500}
-                value={quickMarkupPercent}
-                onChange={(e) => setQuickMarkupPercent(e.target.value)}
-                dir="ltr"
-                className="w-12 text-center text-xs font-mono font-bold bg-white outline-none h-full"
-              />
-            </div>
+            )}
+
+            {quickPricingMethod === 'tiers' && (
+              <span className="h-[28px] px-1.5 inline-flex items-center gap-1 rounded-lg bg-sky-50 border border-sky-200 text-sky-800 text-[10px] font-bold whitespace-nowrap">
+                <Layers size={11} />
+                {quickTiers.length} شرائح
+              </span>
+            )}
+
+            {/* Compact Details Drawer Toggle */}
+            <button
+              type="button"
+              onClick={() => setShowQuickPricingDetails((v) => !v)}
+              className={`h-[28px] flex items-center gap-1 px-2 border font-bold rounded-lg text-[11px] transition-colors cursor-pointer whitespace-nowrap ${
+                showQuickPricingDetails
+                  ? 'bg-indigo-50 border-indigo-300 text-indigo-800'
+                  : 'bg-slate-50 hover:bg-slate-100 border-slate-300 text-slate-700'
+              }`}
+              title="فتح تفاصيل طريقة التسعير، الشرائح، التقريب، والمعاينة"
+            >
+              <SlidersHorizontal size={11} />
+              <span>تفاصيل</span>
+              {showQuickPricingDetails ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+            </button>
+
+            {/* Apply Quick Pricing Button */}
             <button
               type="button"
               onClick={handleApplyQuickMarkup}
-              className="flex items-center gap-1 px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-xs transition-colors cursor-pointer"
-              title="حساب سعر البيع على الجملة للمحدد أو للأصناف التي بدون سعر بيع"
+              className="h-[28px] flex items-center gap-1 px-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-[11px] transition-colors cursor-pointer whitespace-nowrap"
+              title="تطبيق طريقة تسعير البيع على الجملة للمحدد أو للأصناف بدون سعر بيع"
             >
-              <Calculator size={13} />
-              تسعير سريع
+              <Calculator size={12} />
+              <span>تطبيق ({quickTargetProducts.length})</span>
             </button>
+
+            {/* Undo Last Quick Pricing */}
+            {canUndoQuickPricing && (
+              <button
+                type="button"
+                onClick={handleUndoQuickPricing}
+                className="h-[28px] flex items-center gap-1 px-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-bold rounded-lg text-[11px] transition-colors cursor-pointer whitespace-nowrap"
+                title="تراجع عن آخر تسعير سريع"
+              >
+                <RotateCcw size={11} />
+                <span>تراجع</span>
+              </button>
+            )}
           </div>
-          <span className="text-[10px] text-slate-400 text-center font-semibold">زيادة سريعة على الجملة</span>
+          <span className="text-[10px] text-slate-400 text-center font-semibold">
+            زيادة سريعة على الجملة (طرق التسعير مختصرة)
+          </span>
         </div>
       </div>
+
+      {/* Collapsible Compact Pricing Method Details Panel */}
+      {showQuickPricingDetails && (
+        <div className="bg-slate-50 border-b border-slate-200 p-3.5 space-y-3 text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-200">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                <SlidersHorizontal size={14} className="text-indigo-600" />
+                تفاصيل طريقة التسعير المختارة:
+              </span>
+              {[
+                { id: 'standard_map', label: 'الخريطة المعيارية', icon: Sparkles },
+                { id: 'percent_markup', label: '(أ) نسبة %', icon: Percent },
+                { id: 'fixed_add', label: '(ب) مبلغ ثابت', icon: SlidersHorizontal },
+                { id: 'profit_margin', label: '(ج) هامش البيع', icon: TrendingUp },
+                { id: 'tiers', label: '(د) شرايح مخصصة', icon: Layers },
+              ].map((m) => {
+                const Icon = m.icon;
+                const active = quickPricingMethod === m.id;
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setQuickPricingMethod(m.id as PricingMethodType)}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[11px] font-bold cursor-pointer transition-colors whitespace-nowrap ${
+                      active
+                        ? 'bg-indigo-600 border-indigo-600 text-white'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Icon size={12} />
+                    <span>{m.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onNavigateToPricing}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-sky-200 text-sky-700 hover:bg-sky-50 text-[11px] font-bold cursor-pointer whitespace-nowrap"
+              >
+                <span>فتح جدول المرحلة 2 الكامل</span>
+                <ChevronRight size={13} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowQuickPricingDetails(false)}
+                className="p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
+                title="إغلاق التفاصيل"
+              >
+                <X size={15} />
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-start">
+            {/* Method Specific Details (Left 7 cols) */}
+            <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-3 space-y-2.5">
+              {quickPricingMethod === 'standard_map' && (
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-bold text-slate-800 text-xs">
+                      شرائح الخريطة المعيارية (تُطبق الزيادة الثابتة تلقائياً حسب سعر الجملة):
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {settings.saved_standard_maps && settings.saved_standard_maps.length > 0 && (
+                        <select
+                          defaultValue=""
+                          onChange={(e) => {
+                            const tpl = settings.saved_standard_maps?.find((t) => t.id === e.target.value);
+                            if (tpl) {
+                              setQuickStandardMap([...tpl.tiers]);
+                              setQuickFallbackPercent(tpl.fallback_percent || 10);
+                            }
+                          }}
+                          className="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-bold"
+                        >
+                          <option value="" disabled>خريطة محفوظة...</option>
+                          {settings.saved_standard_maps.map((tpl) => (
+                            <option key={tpl.id} value={tpl.id}>{tpl.name}</option>
+                          ))}
+                        </select>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setQuickStandardMap(DEFAULT_STANDARD_MAP);
+                          setQuickFallbackPercent(10);
+                        }}
+                        className="px-2 py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-[10px] font-bold text-slate-700 cursor-pointer"
+                      >
+                        الافتراضية
+                      </button>
+                    </div>
+                  </div>
+                  <div className="max-h-36 overflow-y-auto border border-slate-200 rounded-lg">
+                    <table className="w-full text-right text-[11px]">
+                      <thead className="bg-slate-100 text-slate-700 font-bold sticky top-0">
+                        <tr>
+                          <th className="p-1.5">من</th>
+                          <th className="p-1.5">إلى</th>
+                          <th className="p-1.5">الزيادة (+ ج.م)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {quickStandardMap.map((tier) => (
+                          <tr key={tier.id}>
+                            <td className="p-1">
+                              <input
+                                type="number"
+                                value={tier.from}
+                                onChange={(e) => {
+                                  const v = Number(e.target.value) || 0;
+                                  setQuickStandardMap((prev) =>
+                                    prev.map((t) => (t.id === tier.id ? { ...t, from: v } : t))
+                                  );
+                                }}
+                                className="w-16 p-1 border border-slate-200 rounded text-center font-mono font-bold"
+                              />
+                            </td>
+                            <td className="p-1">
+                              <input
+                                type="number"
+                                value={tier.to}
+                                onChange={(e) => {
+                                  const v = Number(e.target.value) || 0;
+                                  setQuickStandardMap((prev) =>
+                                    prev.map((t) => (t.id === tier.id ? { ...t, to: v } : t))
+                                  );
+                                }}
+                                className="w-16 p-1 border border-slate-200 rounded text-center font-mono font-bold"
+                              />
+                            </td>
+                            <td className="p-1">
+                              <input
+                                type="number"
+                                value={tier.increase}
+                                onChange={(e) => {
+                                  const v = Number(e.target.value) || 0;
+                                  setQuickStandardMap((prev) =>
+                                    prev.map((t) => (t.id === tier.id ? { ...t, increase: v } : t))
+                                  );
+                                }}
+                                className="w-16 p-1 border border-slate-200 rounded text-center font-mono font-bold text-emerald-700"
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="flex items-center gap-2 text-[11px] text-slate-600">
+                    <span className="font-bold">فوق 4000 ج.م:</span>
+                    <span>نسبة</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={90}
+                      value={quickFallbackPercent}
+                      onChange={(e) => setQuickFallbackPercent(Number(e.target.value) || 10)}
+                      className="w-14 p-1 border border-slate-200 rounded text-center font-mono font-bold"
+                    />
+                    <span>%</span>
+                  </div>
+                </div>
+              )}
+
+              {quickPricingMethod === 'percent_markup' && (
+                <div className="space-y-2">
+                  <div className="font-bold text-slate-800">(أ) نسبة مئوية مضافة على سعر الجملة</div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {['10', '15', '20', '25', '35', '50'].map((pct) => (
+                      <button
+                        key={pct}
+                        type="button"
+                        onClick={() => setQuickMarkupPercent(pct)}
+                        className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold cursor-pointer ${
+                          quickMarkupPercent === pct
+                            ? 'bg-indigo-600 border-indigo-600 text-white'
+                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        +{pct}%
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    المعادلة: <strong>سعر البيع = الجملة × (1 + {quickMarkupPercent || 0}%)</strong>
+                  </p>
+                </div>
+              )}
+
+              {quickPricingMethod === 'fixed_add' && (
+                <div className="space-y-2">
+                  <div className="font-bold text-slate-800">(ب) مبلغ ثابت بالجنيه يُضاف فوق الجملة</div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {['10', '15', '20', '30', '50', '100'].map((amt) => (
+                      <button
+                        key={amt}
+                        type="button"
+                        onClick={() => setQuickFixedAdd(amt)}
+                        className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold cursor-pointer ${
+                          quickFixedAdd === amt
+                            ? 'bg-indigo-600 border-indigo-600 text-white'
+                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        +{amt} ج.م
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    المعادلة: <strong>سعر البيع = الجملة + {quickFixedAdd || 0} ج.م</strong>
+                  </p>
+                </div>
+              )}
+
+              {quickPricingMethod === 'profit_margin' && (
+                <div className="space-y-2">
+                  <div className="font-bold text-slate-800">(ج) هامش ربح محسوب من سعر البيع النهائي</div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {['15', '20', '25', '30', '35'].map((pct) => (
+                      <button
+                        key={pct}
+                        type="button"
+                        onClick={() => setQuickProfitMargin(pct)}
+                        className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold cursor-pointer ${
+                          quickProfitMargin === pct
+                            ? 'bg-indigo-600 border-indigo-600 text-white'
+                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        هامش {pct}%
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    المعادلة: <strong>سعر البيع = الجملة ÷ (1 − {quickProfitMargin || 0}%)</strong>
+                  </p>
+                </div>
+              )}
+
+              {quickPricingMethod === 'tiers' && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-800">(د) شرايح مخصصة حسب فئة سعر الجملة</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const last = quickTiers[quickTiers.length - 1];
+                        const nextFrom = last ? last.to + 1 : 1;
+                        setQuickTiers((prev) => [
+                          ...prev,
+                          {
+                            id: `qt_${Date.now()}`,
+                            from: nextFrom,
+                            to: nextFrom + 100,
+                            increase_type: 'fixed',
+                            value: 20,
+                          },
+                        ]);
+                      }}
+                      className="inline-flex items-center gap-1 px-2 py-1 bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 rounded-lg text-[10px] font-bold cursor-pointer"
+                    >
+                      <Plus size={11} />
+                      شريحة
+                    </button>
+                  </div>
+                  <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                    {quickTiers.map((tier) => (
+                      <div key={tier.id} className="flex flex-wrap items-center gap-1.5 bg-slate-50 p-1.5 rounded-lg border border-slate-200 text-[11px]">
+                        <span className="text-slate-500">من</span>
+                        <input
+                          type="number"
+                          value={tier.from}
+                          onChange={(e) => {
+                            const v = Number(e.target.value) || 0;
+                            setQuickTiers((prev) => prev.map((t) => (t.id === tier.id ? { ...t, from: v } : t)));
+                          }}
+                          className="w-14 p-1 bg-white border border-slate-200 rounded text-center font-mono font-bold"
+                        />
+                        <span className="text-slate-500">إلى</span>
+                        <input
+                          type="number"
+                          value={tier.to}
+                          onChange={(e) => {
+                            const v = Number(e.target.value) || 0;
+                            setQuickTiers((prev) => prev.map((t) => (t.id === tier.id ? { ...t, to: v } : t)));
+                          }}
+                          className="w-14 p-1 bg-white border border-slate-200 rounded text-center font-mono font-bold"
+                        />
+                        <select
+                          value={tier.increase_type}
+                          onChange={(e) => {
+                            const v = e.target.value as 'fixed' | 'percent';
+                            setQuickTiers((prev) => prev.map((t) => (t.id === tier.id ? { ...t, increase_type: v } : t)));
+                          }}
+                          className="p-1 bg-white border border-slate-200 rounded text-[11px] font-bold"
+                        >
+                          <option value="fixed">+ ج.م</option>
+                          <option value="percent">+ %</option>
+                        </select>
+                        <input
+                          type="number"
+                          value={tier.value}
+                          onChange={(e) => {
+                            const v = Number(e.target.value) || 0;
+                            setQuickTiers((prev) => prev.map((t) => (t.id === tier.id ? { ...t, value: v } : t)));
+                          }}
+                          className="w-14 p-1 bg-white border border-slate-200 rounded text-center font-mono font-bold text-emerald-700"
+                        />
+                        {quickTiers.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => setQuickTiers((prev) => prev.filter((t) => t.id !== tier.id))}
+                            className="text-slate-400 hover:text-red-600 cursor-pointer"
+                          >
+                            <X size={13} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Rounding, Scope & Compact Preview (Right 5 cols) */}
+            <div className="lg:col-span-5 bg-white border border-slate-200 rounded-xl p-3 space-y-2.5">
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <span className="font-bold text-slate-800 text-[11px]">الكسور والتقريب:</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextAllow = !quickAllowFractions;
+                      setQuickAllowFractions(nextAllow);
+                      if (nextAllow && quickRounding > 1) setQuickRounding(0);
+                      if (!nextAllow && quickRounding === 0) setQuickRounding(5);
+                    }}
+                    className={`px-2 py-0.5 rounded border text-[10px] font-bold cursor-pointer ${
+                      quickAllowFractions
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                        : 'bg-slate-100 border-slate-300 text-slate-600'
+                    }`}
+                  >
+                    {quickAllowFractions ? 'الكسور: مقبولة ✓' : 'الكسور: مقربة'}
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1">
+                  {[
+                    { label: 'بدون تقريب', val: 0 },
+                    { label: 'أقرب 1 ج', val: 1 },
+                    { label: 'أقرب 5 ج', val: 5 },
+                    { label: 'أقرب 10 ج', val: 10 },
+                  ].map((r) => (
+                    <button
+                      key={r.val}
+                      type="button"
+                      onClick={() => {
+                        setQuickRounding(r.val as 0 | 1 | 5 | 10);
+                        if (r.val === 0 || r.val === 1) setQuickAllowFractions(true);
+                      }}
+                      className={`py-1 px-1.5 rounded border text-[10px] font-bold cursor-pointer ${
+                        quickRounding === r.val
+                          ? 'bg-emerald-50 border-emerald-500 text-emerald-800'
+                          : 'bg-slate-50 border-slate-200 text-slate-600'
+                      }`}
+                    >
+                      {r.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {selectedIds.size === 0 && (
+                <label className="flex items-center gap-2 text-[11px] font-bold text-slate-700 bg-slate-50 p-2 rounded-lg border border-slate-200 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={quickOverrideExisting}
+                    onChange={(e) => setQuickOverrideExisting(e.target.checked)}
+                    className="rounded text-indigo-600 cursor-pointer"
+                  />
+                  <span>إعادة تسعير المعروض كله (حتى لو مسعر مسبقاً)</span>
+                </label>
+              )}
+
+              {/* Compact 3-Row Sample Preview */}
+              <div className="border-t border-slate-100 pt-2 space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
+                  <span className="flex items-center gap-1">
+                    <Eye size={12} className="text-sky-600" />
+                    معاينة مختصرة ({quickTargetProducts.length} صنف):
+                  </span>
+                </div>
+                {quickPreviewSamples.length === 0 ? (
+                  <div className="text-[11px] text-slate-400">
+                    لا توجد أصناف مطابقة بسعر جملة &gt; 0 حالياً.
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    {quickPreviewSamples.map((s) => (
+                      <div
+                        key={s.id}
+                        className="flex items-center justify-between gap-2 bg-slate-50 px-2 py-1 rounded text-[11px]"
+                      >
+                        <span className="truncate font-semibold text-slate-700 max-w-[140px]">
+                          {s.name}
+                        </span>
+                        <span dir="ltr" className="font-mono text-slate-500 shrink-0">
+                          {s.wholesale} ← <strong className="text-emerald-700">{s.newSelling}</strong>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Inline Paste From Excel Panel */}
       {showPasteModal && (
@@ -1247,24 +2036,45 @@ export const ExcelSpreadsheetTab: React.FC<ExcelSpreadsheetTabProps> = ({
                       />
                     </td>
 
-                    {/* A: Photo cell */}
+                    {/* A: Photo cell with Pro Studio & Quick Remove */}
                     <td className="border-l border-slate-200 p-1 text-center">
-                      <button
-                        type="button"
-                        onClick={() => handleTriggerRowImageUpload(product.id)}
-                        className="w-9 h-8 mx-auto rounded border border-slate-200 bg-white hover:border-[#107C41] flex items-center justify-center overflow-hidden cursor-pointer group relative"
-                        title="اضغط لرفع أو تغيير صورة المنتج"
-                      >
-                        {product.image_url ? (
-                          <img
-                            src={product.image_url}
-                            alt={product.name}
-                            className="w-full h-full object-contain"
-                          />
-                        ) : (
-                          <ImagePlus size={14} className="text-slate-400 group-hover:text-[#107C41]" />
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenRowImageCell(product)}
+                          className="w-9 h-8 rounded border border-slate-200 bg-white hover:border-[#107C41] flex items-center justify-center overflow-hidden cursor-pointer group relative"
+                          title={
+                            product.image_url
+                              ? 'اضغط لفتح استوديو القص والتعديل والإزالة'
+                              : 'اضغط لرفع صورة وتعديلها وقصها'
+                          }
+                        >
+                          {product.image_url ? (
+                            <>
+                              <img
+                                src={product.image_url}
+                                alt={product.name}
+                                className="w-full h-full object-contain"
+                              />
+                              <span className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                <Crop size={12} className="text-white" />
+                              </span>
+                            </>
+                          ) : (
+                            <ImagePlus size={14} className="text-slate-400 group-hover:text-[#107C41]" />
+                          )}
+                        </button>
+                        {product.image_url && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveRowImage(product)}
+                            className="p-1 text-slate-300 hover:text-red-600 rounded transition-colors cursor-pointer"
+                            title="إزالة صورة الصنف"
+                          >
+                            <X size={12} />
+                          </button>
                         )}
-                      </button>
+                      </div>
                     </td>
 
                     {/* B: Code */}
@@ -1513,6 +2323,22 @@ export const ExcelSpreadsheetTab: React.FC<ExcelSpreadsheetTabProps> = ({
           </span>
         </div>
       </div>
+
+      {/* Pro Image Studio Modal for Excel Spreadsheet Row Photos */}
+      {imageStudioTarget && (
+        <CropAdjustModal
+          product={imageStudioTarget.product}
+          initialRawUrl={imageStudioTarget.initialRawUrl}
+          onClose={() => setImageStudioTarget(null)}
+          onSave={async (updated) => {
+            const nextList = productsRef.current.map((p) => (p.id === updated.id ? updated : p));
+            productsRef.current = nextList;
+            onProductsUpdated(nextList);
+            await saveProduct(updated);
+            setSaveStatusText(`تم تحديث صورة "${updated.name || updated.code || 'الصف'}"`);
+          }}
+        />
+      )}
     </div>
   );
 };
