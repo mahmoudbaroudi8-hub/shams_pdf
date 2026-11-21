@@ -19,11 +19,19 @@ function normalizeGeminiModel(raw?: string): string {
   return m;
 }
 
-function getGeminiClient() {
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
+// مفتاح الجهاز: بيتبعت من التطبيق في هيدر x-gemini-api-key، وله الأولوية على مفتاح الخادم
+function getUserKey(req: any): string | undefined {
+  const raw = req?.headers?.['x-gemini-api-key'];
+  const k = (Array.isArray(raw) ? raw[0] : raw) as string | undefined;
+  const t = typeof k === 'string' ? k.trim() : '';
+  return t.length > 5 ? t : undefined;
+}
+
+function getGeminiClient(userKey?: string) {
+  const apiKey = userKey || process.env.GEMINI_API_KEY?.trim();
 
   if (!apiKey) {
-    throw new Error('لم يتم العثور على مفتاح GEMINI_API_KEY في متغيرات الخادم (Secrets).');
+    throw new Error('لم يتم العثور على مفتاح Gemini. أضفه من الإعدادات داخل التطبيق (مفتاح هذا الجهاز).');
   }
 
   return new GoogleGenAI({
@@ -120,9 +128,9 @@ function isInvalidKeyError(error: any): boolean {
 }
 
 // اختبار مفتاح الخادم بطلب خفيف (قائمة الموديلات فقط وليس توليد)
-async function testServerKey(res: any) {
+async function testServerKey(res: any, userKey?: string) {
   try {
-    const apiKey = process.env.GEMINI_API_KEY?.trim();
+    const apiKey = userKey || process.env.GEMINI_API_KEY?.trim();
 
     if (!apiKey) {
       return res.status(400).json({
@@ -349,7 +357,7 @@ function parseQuotaAndDelay(error: any) {
 }
 
 // ---------- قراءة صفحة أو صفحتين (الحد الأقصى 2) ----------
-async function extractProducts(body: any, targetModel: string, res: any) {
+async function extractProducts(body: any, targetModel: string, res: any, userKey?: string) {
   try {
     const {
       imageBase64,
@@ -388,7 +396,7 @@ async function extractProducts(body: any, targetModel: string, res: any) {
       return res.status(400).json({ error: 'لم يتم إرسال صورة الصفحة للتحليل.' });
     }
 
-    const ai = getGeminiClient();
+    const ai = getGeminiClient(userKey);
 
     const isMultiplePages = pageImages.length > 1;
     const pageNumbersStr = pageImages.map((p) => p.pageNum).join(' و ');
@@ -606,7 +614,7 @@ ${isRetry ? '- تنبيه إعادة محاولة: تأكد من دقة وحجم
 }
 
 // ---------- قراءة صورة منتج واحدة ----------
-async function extractSingleProductImage(body: any, targetModel: string, res: any) {
+async function extractSingleProductImage(body: any, targetModel: string, res: any, userKey?: string) {
   try {
     const { imageBase64, mimeType = 'image/jpeg' } = body;
 
@@ -614,7 +622,7 @@ async function extractSingleProductImage(body: any, targetModel: string, res: an
       return res.status(400).json({ error: 'لم يتم إرسال صورة المنتج.' });
     }
 
-    const ai = getGeminiClient();
+    const ai = getGeminiClient(userKey);
 
     const prompt = `
 أنت خبير فاحص لصور وعلب إكسسوارات الموبايل (علب كرتونية، صور منتجات فوتوغرافية، ملصقات، إعلانات، كروت أصناف).
@@ -809,6 +817,7 @@ export default async function handler(req: any, res: any) {
 
   const action = String(req.query?.action || '');
   const targetModel = normalizeGeminiModel(req.headers['x-gemini-model'] as string | undefined);
+  const userKey = getUserKey(req);
 
   let body = req.body;
   if (typeof body === 'string') {
@@ -821,13 +830,13 @@ export default async function handler(req: any, res: any) {
   body = body || {};
 
   if (action === 'test-key') {
-    return testServerKey(res);
+    return testServerKey(res, userKey);
   }
   if (action === 'extract-products') {
-    return extractProducts(body, targetModel, res);
+    return extractProducts(body, targetModel, res, userKey);
   }
   if (action === 'extract-single-product-image') {
-    return extractSingleProductImage(body, targetModel, res);
+    return extractSingleProductImage(body, targetModel, res, userKey);
   }
   return res.status(404).json({ error: `مسار غير معروف: ${action}` });
 }

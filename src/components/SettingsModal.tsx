@@ -20,6 +20,12 @@ import {
 } from '../utils/db';
 import { useUiFeedback } from './UiFeedbackProvider';
 import {
+  getDeviceGeminiKey,
+  setDeviceGeminiKey,
+  clearDeviceGeminiKey,
+  onDeviceGeminiKeyChange,
+} from '../utils/geminiKey';
+import {
   Settings,
   Database,
   Download,
@@ -71,6 +77,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   }));
 
   const [hasServerKey, setHasServerKey] = useState<boolean | null>(null);
+  const [serverHasEnvKey, setServerHasEnvKey] = useState<boolean | null>(null);
+  const [deviceKey, setDeviceKey] = useState<string>(() => getDeviceGeminiKey());
+  const [deviceKeyInput, setDeviceKeyInput] = useState('');
+  const [showDeviceKey, setShowDeviceKey] = useState(false);
   const [isSavedNotice, setIsSavedNotice] = useState(false);
 
   // Pre-import merge states (Requirement 1 & 5)
@@ -92,8 +102,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   useEffect(() => {
     fetch('/api/health')
       .then((res) => res.json())
-      .then((data) => setHasServerKey(Boolean(data.hasServerKey)))
-      .catch(() => setHasServerKey(false));
+      .then((data) => setServerHasEnvKey(Boolean(data.hasServerKey)))
+      .catch(() => setServerHasEnvKey(false));
 
     if (typeof navigator !== 'undefined' && navigator.storage && navigator.storage.persisted) {
       navigator.storage.persisted().then((persisted) => setIsPersistent(persisted)).catch(() => {});
@@ -101,6 +111,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
     getAutoBackupSnapshots().then((snaps) => setAutoSnapshots(snaps)).catch(() => {});
   }, []);
+
+  // الذكاء الاصطناعي شغال لو فيه مفتاح على الخادم أو مفتاح محفوظ على الجهاز ده
+  useEffect(() => {
+    if (serverHasEnvKey === null) return;
+    setHasServerKey(serverHasEnvKey || Boolean(deviceKey));
+  }, [serverHasEnvKey, deviceKey]);
+
+  useEffect(() => onDeviceGeminiKeyChange(() => setDeviceKey(getDeviceGeminiKey())), []);
+
+  const handleSaveDeviceKey = () => {
+    const k = deviceKeyInput.trim();
+    if (k.length < 20 || /\s/.test(k)) {
+      toast.error('المفتاح غير مظبوط. انسخه كامل من Google AI Studio من غير مسافات.');
+      return;
+    }
+    setDeviceGeminiKey(k);
+    setDeviceKeyInput('');
+    setShowDeviceKey(false);
+    toast.success('تم حفظ المفتاح على هذا الجهاز.');
+  };
+
+  const handleRemoveDeviceKey = () => {
+    clearDeviceGeminiKey();
+    toast.success('تم مسح المفتاح من هذا الجهاز.');
+  };
 
   const handleRequestStoragePersistence = async () => {
     const granted = await requestPersistentStorage();
@@ -1147,14 +1182,69 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     {hasServerKey === null
                       ? 'جاري التحقق من حالة خدمة Gemini على الخادم...'
                       : hasServerKey
-                      ? 'الذكاء الاصطناعي مفعل بأمان عبر الخادم (Server-Side Gemini API)'
-                      : 'مفتاح GEMINI_API_KEY غير مُعد في بيئة الخادم'}
+                      ? deviceKey
+                        ? 'الذكاء الاصطناعي شغال بمفتاح الجهاز ده'
+                        : 'الذكاء الاصطناعي مفعل بأمان عبر الخادم (Server-Side Gemini API)'
+                      : 'لسه مفيش مفتاح Gemini على الجهاز ده'}
                   </span>
                   <p className="text-[11px] opacity-85 leading-relaxed">
                     {hasServerKey === false
-                      ? 'يرجى إضافة المتغير GEMINI_API_KEY داخل إعدادات أسرار المشروع (Settings > Secrets) في منصة الاستضافة لتفعيل قراءة PDF والصور تلقائياً.'
-                      : 'تتم جميع طلبات Gemini من خلال الخادم بشكل آمن دون تخزين أو كشف أي مفاتيح في المتصفح.'}
+                      ? 'اكتب مفتاحك في الخانة اللي تحت واضغط حفظ، وقراءة PDF والصور هتشتغل على الجهاز ده.'
+                      : deviceKey
+                      ? 'المفتاح محفوظ على الجهاز ده بس، وبيتبعت مع كل طلب قراءة.'
+                      : 'تتم جميع طلبات Gemini من خلال الخادم بشكل آمن.'}
                   </p>
+                </div>
+              </div>
+
+              {/* مفتاح Gemini الخاص بالجهاز */}
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                <h4 className="font-bold text-slate-800 text-xs flex items-center gap-2">
+                  <ShieldCheck size={15} className="text-sky-600" />
+                  مفتاح Gemini لهذا الجهاز:
+                </h4>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  كل جهاز له مفتاحه. المفتاح بيتحفظ على الجهاز ده بس. هات المفتاح من
+                  aistudio.google.com ← Get API key.
+                </p>
+                {deviceKey && (
+                  <div className="flex items-center justify-between gap-2 bg-emerald-50 border border-emerald-200 rounded-xl p-2.5 text-xs text-emerald-900">
+                    <span className="font-bold">
+                      مفتاح محفوظ ينتهي بـ <span className="font-mono" dir="ltr">...{deviceKey.slice(-4)}</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleRemoveDeviceKey}
+                      className="px-2.5 py-1 rounded-lg bg-white border border-emerald-200 text-rose-600 font-bold hover:bg-rose-50"
+                    >
+                      مسح
+                    </button>
+                  </div>
+                )}
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type={showDeviceKey ? 'text' : 'password'}
+                    dir="ltr"
+                    autoComplete="off"
+                    value={deviceKeyInput}
+                    onChange={(e) => setDeviceKeyInput(e.target.value)}
+                    placeholder={deviceKey ? 'اكتب مفتاح جديد لو عايز تغيّره' : 'الصق المفتاح هنا (AIza...)'}
+                    className="flex-1 p-2.5 bg-white border border-slate-200 rounded-xl text-xs font-mono text-slate-800 focus:ring-1 focus:ring-sky-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowDeviceKey((v) => !v)}
+                    className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-100"
+                  >
+                    {showDeviceKey ? 'إخفاء' : 'إظهار'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveDeviceKey}
+                    className="px-4 py-2 rounded-xl bg-sky-600 text-white text-xs font-bold hover:bg-sky-700"
+                  >
+                    حفظ المفتاح
+                  </button>
                 </div>
               </div>
 

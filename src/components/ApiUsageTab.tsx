@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { ApiUsageLog, CatalogSettings } from '../types';
 import { saveSettings, clearApiUsageLogs } from '../utils/db';
+import { getDeviceGeminiKey } from '../utils/geminiKey';
 import { useUiFeedback } from './UiFeedbackProvider';
 import {
   Coins,
@@ -48,8 +49,8 @@ export const ApiUsageTab: React.FC<ApiUsageTabProps> = ({
   useEffect(() => {
     fetch('/api/health')
       .then((res) => res.json())
-      .then((data) => setHasServerKey(Boolean(data.hasServerKey)))
-      .catch(() => setHasServerKey(false));
+      .then((data) => setHasServerKey(Boolean(data.hasServerKey) || Boolean(getDeviceGeminiKey())))
+      .catch(() => setHasServerKey(Boolean(getDeviceGeminiKey())));
   }, []);
 
   const handleTestServerConnection = async () => {

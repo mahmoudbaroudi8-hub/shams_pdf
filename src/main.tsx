@@ -3,6 +3,9 @@ import { registerSW } from 'virtual:pwa-register';
 import App from './App.tsx';
 import { UiFeedbackProvider } from './components/UiFeedbackProvider';
 import './index.css';
+import { installGeminiKeyInjector } from './utils/geminiKey';
+
+installGeminiKeyInjector();
 
 if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
   registerSW({ immediate: true });

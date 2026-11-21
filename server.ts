@@ -46,11 +46,19 @@ function normalizeGeminiModel(raw?: string): string {
 }
 
 // Helper to get Gemini client strictly from server environment secret
-function getGeminiClient() {
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
+// مفتاح الجهاز: بيتبعت من التطبيق في هيدر x-gemini-api-key، وله الأولوية على مفتاح الخادم
+function getUserKey(req: any): string | undefined {
+  const raw = req?.headers?.['x-gemini-api-key'];
+  const k = (Array.isArray(raw) ? raw[0] : raw) as string | undefined;
+  const t = typeof k === 'string' ? k.trim() : '';
+  return t.length > 5 ? t : undefined;
+}
+
+function getGeminiClient(userKey?: string) {
+  const apiKey = userKey || process.env.GEMINI_API_KEY?.trim();
 
   if (!apiKey) {
-    throw new Error('لم يتم العثور على مفتاح GEMINI_API_KEY في متغيرات الخادم (Secrets).');
+    throw new Error('لم يتم العثور على مفتاح Gemini. أضفه من الإعدادات داخل التطبيق (مفتاح هذا الجهاز).');
   }
 
   return new GoogleGenAI({
@@ -147,9 +155,9 @@ function isInvalidKeyError(error: any): boolean {
 }
 
 // اختبار مفتاح الخادم بطلب خفيف (قائمة الموديلات فقط وليس توليد)
-async function testServerKey(res: any) {
+async function testServerKey(res: any, userKey?: string) {
   try {
-    const apiKey = process.env.GEMINI_API_KEY?.trim();
+    const apiKey = userKey || process.env.GEMINI_API_KEY?.trim();
 
     if (!apiKey) {
       return res.status(400).json({
@@ -228,12 +236,12 @@ app.get('/api/health', (req, res) => {
 });
 
 // Test key endpoints (POST and GET) - tests server GEMINI_API_KEY only
-app.post('/api/gemini/test-key', async (_req, res) => {
-  return testServerKey(res);
+app.post('/api/gemini/test-key', async (req, res) => {
+  return testServerKey(res, getUserKey(req));
 });
 
-app.get('/api/gemini/test-key', async (_req, res) => {
-  return testServerKey(res);
+app.get('/api/gemini/test-key', async (req, res) => {
+  return testServerKey(res, getUserKey(req));
 });
 
 // Extract products from a single full page (scale 2) or pairs (max 2)
@@ -276,7 +284,7 @@ app.post('/api/gemini/extract-products', async (req, res) => {
       });
     }
 
-    const ai = getGeminiClient();
+    const ai = getGeminiClient(getUserKey(req));
 
     const isMultiplePages = pageImages.length > 1;
     const pageNumbersStr = pageImages.map((p) => p.pageNum).join(' و ');
@@ -647,7 +655,7 @@ app.post('/api/gemini/extract-single-product-image', async (req, res) => {
       return res.status(400).json({ error: 'لم يتم إرسال صورة المنتج.' });
     }
 
-    const ai = getGeminiClient();
+    const ai = getGeminiClient(getUserKey(req));
 
     const prompt = `
 أنت خبير فاحص لصور وعلب إكسسوارات الموبايل (علب كرتونية، صور منتجات فوتوغرافية، ملصقات، إعلانات، كروت أصناف).
